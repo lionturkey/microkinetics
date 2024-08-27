@@ -378,6 +378,6 @@ plt.ylim([-1, 1])
 
 # Save the plot as a PNG file
 plt.savefig("pid_results.png", dpi=300, bbox_inches="tight")
-plt.show()
+# plt.show()
 
 print(MAE / 100)
