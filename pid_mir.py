@@ -103,6 +103,49 @@ max_rate = max_rate_orig * max_Reactivity_per_degree / Reactivity_per_degree
 
 
 # PID controller
+class PIDController:
+    def __init__(self, Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.Kaw = Kaw
+        self.T_C = T_C
+        self.max_val = max_val
+        self.min_val = min_val
+        self.max_rate = max_rate
+        self.integral = 0
+        self.err_prev = 0
+        self.t_prev = 0
+        self.deriv_prev = 0
+        self.command_prev = 0
+        self.command_sat_prev = 0
+
+    def update(self, t, measurement, setpoint):
+        err = setpoint - measurement
+        T = t - self.t_prev
+        self.t_prev = t
+
+        self.integral += self.Ki * err * T + self.Kaw * (self.command_sat_prev - self.command_prev) * T
+
+        self.err_prev = err
+
+        deriv_filt = (err - self.err_prev + self.T_C * self.deriv_prev) / (T + self.T_C)
+        self.deriv_prev = deriv_filt
+
+        command = self.Kp * err + self.integral + self.Kd * deriv_filt
+        self.command_prev = command
+
+        command_sat = np.clip(command, self.min_val, self.max_val)
+
+        if command_sat > self.command_sat_prev + self.max_rate * T:
+            command_sat = self.command_sat_prev + self.max_rate * T
+        elif command_sat < self.command_sat_prev - self.max_rate * T:
+            command_sat = self.command_sat_prev - self.max_rate * T
+
+        self.command_sat_prev = command_sat
+
+        return command_sat
+
 def pid_controller(
     t, measurement, setpoint, Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate,
     init, u0
@@ -270,25 +313,29 @@ pid_controller(
     0, 0, 0, Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate, init=True, u0=u0
 )
 
+controller = PIDController(Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate)
+
 # --Now start the simualtion loop
 for i in range(nt - 1):
     dx = reactor_dae(x[i, :], u[i], Rho_d0, Reactivity_per_degree)
     x[i + 1, :] = x[i, :] + dx * dt
-    u[i + 1] = pid_controller(
-        time[i],
-        x[i + 1, 0],
-        ref[i + 1],
-        Kp,
-        Ki,
-        Kd,
-        Kaw,
-        T_C,
-        max_val,
-        min_val,
-        max_rate,
-        False,
-        0,
-    )
+    u[i + 1] = controller.update(time[i], x[i + 1, 0], ref[i + 1])
+    
+    # u[i + 1] = pid_controller(
+    #     time[i],
+    #     x[i + 1, 0],
+    #     ref[i + 1],
+    #     Kp,
+    #     Ki,
+    #     Kd,
+    #     Kaw,
+    #     T_C,
+    #     max_val,
+    #     min_val,
+    #     max_rate,
+    #     False,
+    #     0,
+    # )
 
 # -- rate of change (Add a zero at the beginning to match the length)
 du = np.concatenate(([0], np.diff(u) / dt))
