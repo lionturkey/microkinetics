@@ -104,7 +104,7 @@ max_rate = max_rate_orig * max_Reactivity_per_degree / Reactivity_per_degree
 
 # PID controller
 class PIDController:
-    def __init__(self, Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate):
+    def __init__(self, Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate, u0):
         self.Kp = Kp
         self.Ki = Ki
         self.Kd = Kd
@@ -113,12 +113,12 @@ class PIDController:
         self.max_val = max_val
         self.min_val = min_val
         self.max_rate = max_rate
-        self.integral = 0
+        self.integral = u0
         self.err_prev = 0
         self.t_prev = 0
         self.deriv_prev = 0
-        self.command_prev = 0
-        self.command_sat_prev = 0
+        self.command_prev = u0
+        self.command_sat_prev = u0
 
     def update(self, t, measurement, setpoint):
         err = setpoint - measurement
@@ -145,47 +145,6 @@ class PIDController:
         self.command_sat_prev = command_sat
 
         return command_sat
-
-def pid_controller(
-    t, measurement, setpoint, Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate,
-    init, u0
-):
-    global integral, err_prev, t_prev, deriv_prev, command_prev, command_sat_prev
-
-    if init:
-        integral = u0
-        err_prev = 0
-        t_prev = 0
-        deriv_prev = 0
-        command_prev = u0
-        command_sat_prev = u0
-
-    err = setpoint - measurement
-    T = t - t_prev
-    t_prev = t
-
-    integral += Ki * err * T + Kaw * (command_sat_prev - command_prev) * T
-
-    deriv_filt = (err - err_prev + T_C * deriv_prev) / (T + T_C)
-
-    err_prev = err
-    deriv_prev = deriv_filt
-
-    command = Kp * err + integral + Kd * deriv_filt
-    command_prev = command
-
-    # apply drum position limits
-    command_sat = np.clip(command, min_val, max_val)
-
-    # apply drum speed limit
-    if command_sat > command_sat_prev + max_rate * T:
-        command_sat = command_sat_prev + max_rate * T
-    elif command_sat < command_sat_prev - max_rate * T:
-        command_sat = command_sat_prev - max_rate * T
-
-    command_sat_prev = command_sat
-
-    return command_sat
 
 
 # %% Part 4: Point Kinetics Reactor Model (leave as is)
@@ -307,35 +266,14 @@ x[0, :] = x0  # set initial state
 u = np.zeros(nt)  # control signal (drum position)
 u[0] = u0  # set the first drum position
 
-# --initiliaze the controller (this is an arbitrary call to get init=True and
-#   u0=u0 passed)
-pid_controller(
-    0, 0, 0, Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate, init=True, u0=u0
-)
-
-controller = PIDController(Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate)
+# --initiliaze the controller
+controller = PIDController(Kp, Ki, Kd, Kaw, T_C, max_val, min_val, max_rate, u0)
 
 # --Now start the simualtion loop
 for i in range(nt - 1):
     dx = reactor_dae(x[i, :], u[i], Rho_d0, Reactivity_per_degree)
     x[i + 1, :] = x[i, :] + dx * dt
     u[i + 1] = controller.update(time[i], x[i + 1, 0], ref[i + 1])
-    
-    # u[i + 1] = pid_controller(
-    #     time[i],
-    #     x[i + 1, 0],
-    #     ref[i + 1],
-    #     Kp,
-    #     Ki,
-    #     Kd,
-    #     Kaw,
-    #     T_C,
-    #     max_val,
-    #     min_val,
-    #     max_rate,
-    #     False,
-    #     0,
-    # )
 
 # -- rate of change (Add a zero at the beginning to match the length)
 du = np.concatenate(([0], np.diff(u) / dt))
