@@ -18,6 +18,7 @@ class PIDController:
         Kaw: the anti windup gain
         T_C: the PID parameter
         max_rate: the maximum rate of change of the control signal
+        mutiplier: the multiplier for the gains based on the number of drums
     """
 
     def __init__(self, Kp=1, Ki=1.5, Kd=0.001, Kaw=0.3, T_C=0.2, max_rate=0.5, multiplier=1.0):
@@ -90,18 +91,36 @@ class MicroReactorSimulator:
                          3.870])
 
 
-    Sum_f = 0.3358
-
     Lambda = 1.68e-3 # neutron lifetime
     beta = 0.0048
 
-    def __init__(self, num_drums=8, dt=0.1, simulation_time=2000):
+    def __init__(self, num_drums=8, dt=0.01):
         self.num_drums = num_drums
         self.dt = dt
-        self.simulation_time = simulation_time
         self.Rho_d0 = self._Rho_d0[num_drums]
         self.Reactivity_per_degree = self._Reactivity_per_degree[num_drums]
-        self.u0 = self._critical_setpoint[num_drums]
+        self.drum_position = self._critical_setpoint[num_drums]
+        # power, precursor concentrations
+        self.power = 1
+        self.precursors = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        self.reactivity_inserted = 0
+
+
+    def iterate(self):
+        dPower = self.power * (self.reactivity_inserted - self.beta) / self.Lambda
+        dPower += np.sum(self._lambdas * self.precursors) / self.Lambda
+        dPrecursors = self.power * self._betas - self._lambdas * self.precursors
+        self.power += dPower * self.dt
+        self.precursors += dPrecursors * self.dt
+
+    def step(self, action, step_size=1):
+        self.reactivity_inserted += action * self.Reactivity_per_degree
+        self.drum_position += action
+        for _ in range(int(1 / self.dt)*step_size):
+            self.iterate()
+        return self.power, self.precursors
+        
+
 
 
 
