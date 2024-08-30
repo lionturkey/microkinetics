@@ -159,7 +159,7 @@ def reactor_dae(x, u, Rho_d0, Reactivity_per_degree):
     lamda_I = 2.87e-5
     Sum_f = 0.3358
 
-    l = 1.68e-3
+    l = 1.68e-3 # neutron lifetime
     beta = 0.0048
     beta_1 = 1.42481e-4
     beta_2 = 9.24281e-4
