@@ -1,11 +1,5 @@
 import numpy as np
-from enum import IntEnum
-
-
-class Material(IntEnum):
-    FUEL = 0
-    MOD = 1
-    COOL = 2
+import gymnasium as gym
 
 
 class PIDController:
@@ -101,9 +95,13 @@ class MicroReactorSimulator:
         self.Reactivity_per_degree = self._Reactivity_per_degree[num_drums]
         self.drum_position = self._critical_setpoint[num_drums]
         # power, precursor concentrations
-        self.power = 1
-        self.precursors = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        self.power = 100
+        # self.precursors = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        self.precursors = np.array([1.2, 3.0, 0.7, 0.7, 0.05, 0.01])
         self.reactivity_inserted = 0
+        self.drum_history = []
+        self.action_history = []
+        self.power_history = []
 
 
     def iterate(self):
@@ -119,9 +117,43 @@ class MicroReactorSimulator:
         for _ in range(int(1 / self.dt)*step_size):
             self.iterate()
         return self.power, self.precursors
-        
+
+    def zero_reactivity(self):
+        self.reactivity_inserted = 0
+
+class MicroGym(gym.Env):
+    def __init__(self, num_drums=8, dt=0.1, episode_length=2000):
+        self.num_drums = num_drums
+        self.dt = dt
+        self.episode_length = episode_length
+        self.simulator = MicroReactorSimulator(num_drums, dt)
+        self.t = 0
+
+    def step(self, action):
+        if self.t >= self.episode_length:
+            raise RuntimeError("Episode length exceeded")
+        power, precursors = self.simulator.step(action)
+        self.t += self.simulator.dt
 
 
+        if self.t >= self.episode_length:
+            truncated = True
+        else:
+            truncated = False
+
+        return observation, reward, terminated, truncated, info
+
+    def reset(self):
+        pass
+
+    def render(self):
+        pass
+
+    def close(self):
+        pass
+
+    def seed(self):
+        pass
 
 
 # def main():
