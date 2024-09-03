@@ -88,52 +88,58 @@ class MicroReactorSimulator:
     Lambda = 1.68e-3 # neutron lifetime
     beta = 0.0048
 
-    def __init__(self, num_drums=8, dt=0.01):
+    def __init__(self, num_drums=8, d_time=0.01):
         self.num_drums = num_drums
-        self.dt = dt
+        self.d_time = d_time
         self.Rho_d0 = self._Rho_d0[num_drums]
         self.Reactivity_per_degree = self._Reactivity_per_degree[num_drums]
         self.drum_position = self._critical_setpoint[num_drums]
-        # power, precursor concentrations
         self.power = 100
-        # self.precursors = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+        # somewhat arbitrary initial precursor concentrations chosen based on running things for a while
         self.precursors = np.array([1.2, 3.0, 0.7, 0.7, 0.05, 0.01])
         self.reactivity_inserted = 0
-        self.drum_history = []
-        self.action_history = []
-        self.power_history = []
+        self.drum_history = [self.drum_position]
+        self.action_history = [0]
+        self.power_history = [100]
 
 
     def iterate(self):
         dPower = self.power * (self.reactivity_inserted - self.beta) / self.Lambda
         dPower += np.sum(self._lambdas * self.precursors) / self.Lambda
         dPrecursors = self.power * self._betas - self._lambdas * self.precursors
-        self.power += dPower * self.dt
-        self.precursors += dPrecursors * self.dt
+        self.power += dPower * self.d_time
+        self.precursors += dPrecursors * self.d_time
 
     def step(self, action, step_size=1):
         self.reactivity_inserted += action * self.Reactivity_per_degree
         self.drum_position += action
-        for _ in range(int(1 / self.dt)*step_size):
+        for _ in range(int(1 / self.d_time)*step_size):
             self.iterate()
+        
+        self.drum_history.append(self.drum_position)
+        self.action_history.append(action)
+        self.power_history.append(self.power)
         return self.power, self.precursors
 
     def zero_reactivity(self):
         self.reactivity_inserted = 0
 
+
+
 class MicroGym(gym.Env):
-    def __init__(self, num_drums=8, dt=0.1, episode_length=2000):
+    # WORK IN PROGRESS
+    def __init__(self, num_drums=8, d_time=0.1, episode_length=2000):
         self.num_drums = num_drums
-        self.dt = dt
+        self.d_time = d_time
         self.episode_length = episode_length
-        self.simulator = MicroReactorSimulator(num_drums, dt)
+        self.simulator = MicroReactorSimulator(num_drums, d_time)
         self.t = 0
 
     def step(self, action):
         if self.t >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
         power, precursors = self.simulator.step(action)
-        self.t += self.simulator.dt
+        self.t += self.simulator.d_time
 
 
         if self.t >= self.episode_length:
@@ -188,7 +194,7 @@ class MicroGym(gym.Env):
 #         sim(t, u)
 #         times.append(t)
 #         powers.append(power)
-#         t += sim.dt
+#         t += sim.d_time
 
 #     # plot the actual power profile over time compared to the desired profile
 #     plt.plot(times, powers, label='Actual')
