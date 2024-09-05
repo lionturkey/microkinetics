@@ -128,29 +128,44 @@ class MicroReactorSimulator:
 
 class MicroGym(gym.Env):
     # WORK IN PROGRESS
-    def __init__(self, num_drums=8, d_time=0.1, episode_length=2000):
+    def __init__(self, num_drums=8, d_time=0.1, episode_length=200):
         self.num_drums = num_drums
         self.d_time = d_time
         self.episode_length = episode_length
-        self.simulator = MicroReactorSimulator(num_drums, d_time)
-        self.t = 0
+
+        self.action_space = gym.spaces.Discrete(11)
+        self.observation_space = gym.spaces.Discrete(181) # TODO: angle, power (float)
+
+        self.reset()
 
     def step(self, action):
         if self.t >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
-        power, precursors = self.simulator.step(action)
+        self.power, _precursors = self.simulator.step(action)
         self.t += self.simulator.d_time
 
+        observation = {
+            "power": self.power,
+        }
+
+        reward = self.calc_reward()
 
         if self.t >= self.episode_length:
             truncated = True
         else:
             truncated = False
 
-        return observation, reward, terminated, truncated, info
+        info = {}
+        return observation, reward, False, truncated, info
+
+    def calc_reward(self):
+        return 1 / (self.power - self.profile(self.t))
 
     def reset(self):
-        pass
+        self.simulator = MicroReactorSimulator(self.num_drums, self.d_time)
+        self.t = 0
+        self.power = 100
+        self.profile = random_desired_profile()
 
     def render(self):
         pass
@@ -160,6 +175,19 @@ class MicroGym(gym.Env):
 
     def seed(self):
         pass
+
+def random_desired_profile():
+    cutoffs = sorted(np.random.randint(0, 200, size=np.random.randint(3, 7)))
+    values = [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=len(cutoffs) + 1)]
+
+    def desired_profile(t):
+        for i, cutoff in enumerate(cutoffs):
+            if t < cutoff:
+                return values[i]
+        return values[-1]
+
+    return desired_profile
+
 
 
 # def main():
