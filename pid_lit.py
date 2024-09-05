@@ -1,5 +1,6 @@
 import numpy as np
 import gymnasium as gym
+import matplotlib.pyplot as plt
 
 
 class PIDController:
@@ -15,7 +16,7 @@ class PIDController:
         mutiplier: the multiplier for the gains based on the number of drums
     """
 
-    def __init__(self, Kp=1, Ki=1.5, Kd=0.001, Kaw=0.3, T_C=0.2, max_rate=0.5, multiplier=1.0):
+    def __init__(self, Kp=10, Ki=0, Kd=.8, Kaw=0.3, T_C=0.2, max_rate=0.5, multiplier=1.0):
         self.Kp = Kp * multiplier
         self.Ki = Ki * multiplier
         self.Kd = Kd * multiplier
@@ -91,6 +92,7 @@ class MicroReactorSimulator:
     def __init__(self, num_drums=8, d_time=0.01):
         self.num_drums = num_drums
         self.d_time = d_time
+        self.time = 0
         self.Rho_d0 = self._Rho_d0[num_drums]
         self.Reactivity_per_degree = self._Reactivity_per_degree[num_drums]
         self.drum_position = self._critical_setpoint[num_drums]
@@ -101,6 +103,7 @@ class MicroReactorSimulator:
         self.drum_history = [self.drum_position]
         self.action_history = [0]
         self.power_history = [100]
+        self.time_history = [0]
 
 
     def iterate(self):
@@ -119,6 +122,8 @@ class MicroReactorSimulator:
         self.drum_history.append(self.drum_position)
         self.action_history.append(action)
         self.power_history.append(self.power)
+        self.time += step_size
+        self.time_history.append(self.time)
         return self.power, self.precursors
 
     def zero_reactivity(self):
@@ -126,49 +131,102 @@ class MicroReactorSimulator:
 
 
 
-class MicroGym(gym.Env):
+class MicroEnv(gym.Env):
     # WORK IN PROGRESS
-    def __init__(self, num_drums=8, d_time=0.1, episode_length=200):
+    metadata = {
+        "render_modes": ["human", "rgb_array"],
+        "render_fps": 5,
+    }
+
+    def __init__(self, num_drums=8, d_time=0.1, episode_length=200, render_mode=None):
         self.num_drums = num_drums
         self.d_time = d_time
+        if render_mode not in self.metadata["render_modes"] + [None]:
+            raise ValueError(f"Invalid render mode: {render_mode}")
+        self.render_mode = render_mode
         self.episode_length = episode_length
 
         self.action_space = gym.spaces.Discrete(11)
-        self.observation_space = gym.spaces.Discrete(181) # TODO: angle, power (float)
+        self.observation_space = gym.spaces.Dict({
+            "angle": gym.spaces.Discrete(181),
+            "power": gym.spaces.Discrete(181),
+        })
 
         self.reset()
+    
+    def convert_action(self, action):
+        """Convert from the 0 to 10 discrete gym action space to each tenth from -0.5 to 0.5"""
+        return -0.5 + action / 10.0
 
     def step(self, action):
         if self.t >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
-        self.power, _precursors = self.simulator.step(action)
-        self.t += self.simulator.d_time
+        true_action = self.convert_action(action)
+        power, _precursors = self.simulator.step(true_action)
+        self.t += 1
 
         observation = {
-            "power": self.power,
+            "angle": self.simulator.drum_position,
+            "power": power,
         }
 
-        reward = self.calc_reward()
+        reward = self.calc_reward(power, true_action)
 
         if self.t >= self.episode_length:
             truncated = True
         else:
             truncated = False
 
-        info = {}
+        info = {
+            "actions": true_action,
+        }
+        if self.render_mode == "human":
+            self.render()
         return observation, reward, False, truncated, info
 
-    def calc_reward(self):
-        return 1 / (self.power - self.profile(self.t))
+    def calc_reward(self, power, true_action):
+        return 1 / ((power - self.profile(self.t)) + abs(true_action))
 
     def reset(self):
         self.simulator = MicroReactorSimulator(self.num_drums, self.d_time)
+        # self.fig = plt.figure(figsize=(5,5), dpi=100)
         self.t = 0
         self.power = 100
         self.profile = random_desired_profile()
+        if self.render_mode == "human":
+            plt.ion()
+            self.render()
 
     def render(self):
-        pass
+        # plot the actual power profile over time compared to the desired profile
+        # plt.ion()
+        # self.fig.clf()
+        plt.clf()
+        plt.plot(self.simulator.time_history, self.simulator.power_history, label='Actual')
+        plt.plot(self.simulator.time_history, [self.profile(t) for t in self.simulator.time_history], label='Desired')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Power')
+        plt.legend()
+        plt.pause(.01)
+
+        # ax = self.fig.gca()
+        # ax.plot(self.simulator.time_history, self.simulator.power_history, label='Actual')
+        # desired_powers = [self.profile(t) for t in self.simulator.time_history]
+        # ax.plot(self.simulator.time_history, desired_powers, label='Desired')
+        # ax.set_xlabel('Time (s)')
+        # ax.set_ylabel('Power')
+        # ax.legend()
+        # # ax.set_axis_off()
+        # # self.fig.show()
+        # plt.pause(0.01)
+
+        # image_from_plot = np.frombuffer(self.fig.canvas.renderer.buffer_rgba(), dtype=np.uint8)
+        # # image_from_plot = image_from_plot.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
+
+        # if self.render_mode == "human":
+        #     return image_from_plot
+        # elif self.render_mode == "rgb_array":
+        #     return image_from_plot
 
     def close(self):
         pass
@@ -188,52 +246,28 @@ def random_desired_profile():
 
     return desired_profile
 
+def convert_action_to_gym(action):
+    """Convert from the -0.5 to 0.5 to the 0 to 10 discrete gym action space"""
+    return round((action + 0.5) * 10.0)
 
 
-# def main():
-#     # create a microreactor simulator and a PID controller
-#     sim = MicroReactorSimulator()
-#     pid = PIDController()
+def main():
+    # create a microreactor simulator and a PID controller
+    env = MicroEnv(render_mode="human")
+    pid = PIDController()
 
-#     # define the desired power profile
-#     def desired_profile(t):
-#         if t < 30:
-#             return 1.0
-#         elif t < 60:
-#             return 0.8
-#         elif t < 90:
-#             return 1.0
-#         elif t < 120:
-#             return 0.8
-#         elif t < 150:
-#             return 1.0
-#         else:
-#             return 0.4
-
-#     # loop to get the next reactor state and control action
-#     times = []
-#     powers = []
-#     t = 0
-#     while t < 180:
-#         desired_power = desired_profile(t)
-#         n_r, Cr1, Cr2, Cr3, Cr4, Cr5, Cr6, X, I, Tf, Tm, Tc = sim.state
-#         power = X * (Tf + Tm + Tc)
-#         u = pid.update(t, power, desired_power)
-#         sim(t, u)
-#         times.append(t)
-#         powers.append(power)
-#         t += sim.d_time
-
-#     # plot the actual power profile over time compared to the desired profile
-#     plt.plot(times, powers, label='Actual')
-#     desired_powers = [desired_profile(t) for t in times]
-#     plt.plot(times, desired_powers, label='Desired')
-#     plt.xlabel('Time (s)')
-#     plt.ylabel('Power')
-#     plt.legend()
-#     plt.show()
+    for _ in range(3):
+        env.reset()
+        done = False
+        action = 0
+        while not done:
+            # action = env.action_space.sample()
+            gym_action = convert_action_to_gym(action)
+            obs, _, terminated, truncated, _ = env.step(gym_action)
+            action = pid.update(env.t, obs["power"], env.profile(env.t))
+            if terminated or truncated:
+                done = True
 
 
-# if __name__ == '__main__':
-#     main()
-
+if __name__ == '__main__':
+    main()
