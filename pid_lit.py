@@ -1,6 +1,7 @@
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 
 class PIDController:
@@ -207,7 +208,8 @@ class MicroEnv(gym.Env):
         plt.xlabel('Time (s)')
         plt.ylabel('Power')
         plt.legend()
-        plt.pause(.01)
+        plt.pause(.001)
+        plt.savefig(f'runs/{self.t}.png')
 
         # ax = self.fig.gca()
         # ax.plot(self.simulator.time_history, self.simulator.power_history, label='Actual')
@@ -256,12 +258,12 @@ def main():
     env = MicroEnv(render_mode="human")
     pid = PIDController()
 
-    for _ in range(3):
+    for _ in range(1):
         env.reset()
         done = False
         action = 0
         while not done:
-            # action = env.action_space.sample()
+            # gym_action = env.action_space.sample()
             gym_action = convert_action_to_gym(action)
             obs, _, terminated, truncated, _ = env.step(gym_action)
             action = pid.update(env.t, obs["power"], env.profile(env.t))
