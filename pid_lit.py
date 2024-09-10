@@ -1,7 +1,7 @@
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
-from pathlib import Path
+import stable_baselines3 as sb3
 
 
 class PIDController:
@@ -100,6 +100,7 @@ class MicroReactorSimulator:
         self.power = 100
         # somewhat arbitrary initial precursor concentrations chosen based on running things for a while
         self.precursors = np.array([1.2, 3.0, 0.7, 0.7, 0.05, 0.01])
+        self.precursors = self._betas*100 / (self._lambdas)
         self.reactivity_inserted = 0
         self.drum_history = [self.drum_position]
         self.action_history = [0]
@@ -222,10 +223,16 @@ class MicroEnv(gym.Env):
     def seed(self):
         pass
 
-def random_desired_profile():
-    cutoffs = sorted(np.random.randint(0, 200, size=np.random.randint(3, 7)))
-    values = [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=len(cutoffs) + 1)]
+def random_desired_profile(length=200):
+    num_cutoffs = np.random.randint(3, 7)
+    cutoffs = [int(x) for x in np.linspace(length/num_cutoffs, length, num_cutoffs, endpoint=False)]
+    cutoffs += np.random.randint(-length//num_cutoffs//4, length//num_cutoffs//4, size=num_cutoffs)
+    np.clip(cutoffs, 0, length, out=cutoffs)
+    cutoffs.sort()
+    values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
 
+    print(cutoffs)
+    print(values)
     def desired_profile(t):
         for i, cutoff in enumerate(cutoffs):
             if t < cutoff:
@@ -235,7 +242,7 @@ def random_desired_profile():
     return desired_profile
 
 def convert_action_to_gym(action):
-    """Convert from the -0.5 to 0.5 to the 0 to 10 discrete gym action space"""
+    """Convert from the -0.5 to 0.5 to the 0 to 100 discrete gym action space"""
     return round((action + 0.5) * 100.0)
 
 
