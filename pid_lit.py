@@ -147,17 +147,17 @@ class MicroEnv(gym.Env):
         self.render_mode = render_mode
         self.episode_length = episode_length
 
-        self.action_space = gym.spaces.Discrete(11)
+        self.action_space = gym.spaces.Discrete(101)
         self.observation_space = gym.spaces.Dict({
-            "angle": gym.spaces.Discrete(181),
-            "power": gym.spaces.Discrete(181),
+            "angle": gym.spaces.Box(low=0, high=180, shape=(1,), dtype=np.float32),
+            "power": gym.spaces.Box(low=0, high=100, shape=(1,), dtype=np.float32),
         })
 
         self.reset()
     
     def convert_action(self, action):
         """Convert from the 0 to 10 discrete gym action space to each tenth from -0.5 to 0.5"""
-        return -0.5 + action / 10.0
+        return -0.5 + action / 100.0
 
     def step(self, action):
         if self.t >= self.episode_length:
@@ -208,23 +208,9 @@ class MicroEnv(gym.Env):
         plt.xlabel('Time (s)')
         plt.ylabel('Power')
         plt.legend()
-        plt.pause(.001)
-        plt.savefig(f'runs/{self.t}.png')
+        plt.pause(.01)
 
-        # ax = self.fig.gca()
-        # ax.plot(self.simulator.time_history, self.simulator.power_history, label='Actual')
-        # desired_powers = [self.profile(t) for t in self.simulator.time_history]
-        # ax.plot(self.simulator.time_history, desired_powers, label='Desired')
-        # ax.set_xlabel('Time (s)')
-        # ax.set_ylabel('Power')
-        # ax.legend()
-        # # ax.set_axis_off()
-        # # self.fig.show()
-        # plt.pause(0.01)
-
-        # image_from_plot = np.frombuffer(self.fig.canvas.renderer.buffer_rgba(), dtype=np.uint8)
-        # # image_from_plot = image_from_plot.reshape(self.fig.canvas.get_width_height()[::-1] + (3,))
-
+        # plt.savefig(f'runs/{self.t}.png')
         # if self.render_mode == "human":
         #     return image_from_plot
         # elif self.render_mode == "rgb_array":
@@ -250,7 +236,7 @@ def random_desired_profile():
 
 def convert_action_to_gym(action):
     """Convert from the -0.5 to 0.5 to the 0 to 10 discrete gym action space"""
-    return round((action + 0.5) * 10.0)
+    return round((action + 0.5) * 100.0)
 
 
 def main():
