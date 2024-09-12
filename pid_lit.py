@@ -274,9 +274,11 @@ def main():
 
     # RL training and testing loop using the microreactor environment and ppo
 
-    vec_env = make_vec_env(MicroEnv, n_envs=4, env_kwargs={'render_mode': None})
+    vec_env = make_vec_env(MicroEnv, n_envs=6, env_kwargs={'render_mode': None})
     model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1)
-    model.learn(total_timesteps=250000)
+    model.learn(total_timesteps=2500000)
+
+    model.save("ppo_microreactor_2.5mil")
 
     # Test the trained agent
     
