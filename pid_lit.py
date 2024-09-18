@@ -260,49 +260,49 @@ def convert_action_to_gym(action):
 
 
 def main():
-    # create a microreactor simulator and a PID controller
-    env = MicroEnv(render_mode="human")
-    pid = PIDController()
-
-    for _ in range(1):
-        env.reset()
-        done = False
-        action = 0
-        while not done:
-            # gym_action = env.action_space.sample()
-            gym_action = convert_action_to_gym(action)
-            obs, _, terminated, truncated, _ = env.step(gym_action)
-            action = pid.update(env.t, obs["power"], env.profile(env.t))
-            if terminated or truncated:
-                done = True
-
-
-    # # RL training and testing loop using the microreactor environment and ppo
-
-    # vec_env = make_vec_env(MicroEnv, n_envs=6, env_kwargs={'render_mode': None})
-    # model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1)
-    # model.learn(total_timesteps=2500000)
-
-    # model.save("ppo_microreactor_2.5mil")
-
-    # # Test the trained agent
-    
+    # # create a microreactor simulator and a PID controller
     # env = MicroEnv(render_mode="human")
-    # obs, _ = env.reset()
-    # rewards = []
-    
-    # done = False
-    # while not done:
-    #     # gym_action = env.action_space.sample()
-    #     gym_action, _states = model.predict(obs)
-    #     # gym_action = convert_action_to_gym(action)
-    #     obs, reward, terminated, truncated, _ = env.step(gym_action)
-    #     rewards.append(reward)
-    #     if terminated or truncated:
-    #         done = True
-    #     vec_env.render(mode="human")
+    # pid = PIDController()
 
-    # print(sum(rewards))
+    # for _ in range(1):
+    #     env.reset()
+    #     done = False
+    #     action = 0
+    #     while not done:
+    #         # gym_action = env.action_space.sample()
+    #         gym_action = convert_action_to_gym(action)
+    #         obs, _, terminated, truncated, _ = env.step(gym_action)
+    #         action = pid.update(env.t, obs["power"], env.profile(env.t))
+    #         if terminated or truncated:
+    #             done = True
+
+
+    # RL training and testing loop using the microreactor environment and ppo
+
+    vec_env = make_vec_env(MicroEnv, n_envs=6, env_kwargs={'render_mode': None})
+    model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1)
+    model.learn(total_timesteps=10000000)
+
+    model.save("ppo_microreactor_10mil")
+
+    # Test the trained agent
+    
+    env = MicroEnv(render_mode="human")
+    obs, _ = env.reset()
+    rewards = []
+    
+    done = False
+    while not done:
+        # gym_action = env.action_space.sample()
+        gym_action, _states = model.predict(obs)
+        # gym_action = convert_action_to_gym(action)
+        obs, reward, terminated, truncated, _ = env.step(gym_action)
+        rewards.append(reward)
+        if terminated or truncated:
+            done = True
+        vec_env.render(mode="human")
+
+    print(sum(rewards))
 
 
 if __name__ == '__main__':
