@@ -141,13 +141,15 @@ class MicroEnv(gym.Env):
         "render_fps": 5,
     }
 
-    def __init__(self, num_drums=8, d_time=0.1, episode_length=200, render_mode=None):
+    def __init__(self, num_drums=8, d_time=0.1, episode_length=200,
+                 render_mode=None, run_name=None):
         self.num_drums = num_drums
         self.d_time = d_time
         if render_mode not in self.metadata["render_modes"] + [None]:
             raise ValueError(f"Invalid render mode: {render_mode}")
         self.render_mode = render_mode
         self.episode_length = episode_length
+        self.run_name = run_name
 
         self.action_space = gym.spaces.Discrete(101)
         self.observation_space = gym.spaces.Dict({
@@ -188,7 +190,8 @@ class MicroEnv(gym.Env):
         return observation, reward, False, truncated, info
 
     def calc_reward(self, power, true_action):
-        return 1 / ((power - self.profile(self.t)) + abs(true_action))
+        return 1 / (abs((power - self.profile(self.t))))
+        # return 1 / ((power - self.profile(self.t)) + abs(true_action))
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -212,18 +215,26 @@ class MicroEnv(gym.Env):
         # plt.ion()
         # self.fig.clf()
         plt.clf()
-        plt.plot(self.simulator.time_history, self.simulator.power_history, label='Actual')
-        plt.plot(self.simulator.time_history, [self.profile(t) for t in self.simulator.time_history], label='Desired')
+        plt.plot(self.simulator.time_history, self.simulator.power_history,
+                 label='Actual')
+        plt.plot(self.simulator.time_history,
+                 [self.profile(t) for t in self.simulator.time_history],
+                 label='Desired')
         plt.xlabel('Time (s)')
         plt.ylabel('Power')
         plt.legend()
         plt.pause(.01)
 
-        # plt.savefig(f'runs/{self.t}.png')
+        if self.run_name:
+            plt.savefig(f'runs/{self.run_name}/{self.t}.png')
         # if self.render_mode == "human":
         #     return image_from_plot
         # elif self.render_mode == "rgb_array":
         #     return image_from_plot
+
+    def convert_action_to_gym(self, action):
+        """Convert from the -0.5 to 0.5 to the 0 to 100 discrete gym action space"""
+        return round((action + 0.5) * 100.0)
 
     def close(self):
         pass
@@ -254,55 +265,53 @@ def random_desired_profile(length=200):
 
     return desired_profile
 
-def convert_action_to_gym(action):
-    """Convert from the -0.5 to 0.5 to the 0 to 100 discrete gym action space"""
-    return round((action + 0.5) * 100.0)
+
 
 
 def main():
-    # # create a microreactor simulator and a PID controller
-    # env = MicroEnv(render_mode="human")
-    # pid = PIDController()
-
-    # for _ in range(1):
-    #     env.reset()
-    #     done = False
-    #     action = 0
-    #     while not done:
-    #         # gym_action = env.action_space.sample()
-    #         gym_action = convert_action_to_gym(action)
-    #         obs, _, terminated, truncated, _ = env.step(gym_action)
-    #         action = pid.update(env.t, obs["power"], env.profile(env.t))
-    #         if terminated or truncated:
-    #             done = True
-
-
-    # RL training and testing loop using the microreactor environment and ppo
-
-    vec_env = make_vec_env(MicroEnv, n_envs=6, env_kwargs={'render_mode': None})
-    model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1)
-    model.learn(total_timesteps=10000000)
-
-    model.save("ppo_microreactor_10mil")
-
-    # Test the trained agent
-    
+    # create a microreactor simulator and a PID controller
     env = MicroEnv(render_mode="human")
-    obs, _ = env.reset()
-    rewards = []
-    
-    done = False
-    while not done:
-        # gym_action = env.action_space.sample()
-        gym_action, _states = model.predict(obs)
-        # gym_action = convert_action_to_gym(action)
-        obs, reward, terminated, truncated, _ = env.step(gym_action)
-        rewards.append(reward)
-        if terminated or truncated:
-            done = True
-        vec_env.render(mode="human")
+    pid = PIDController()
 
-    print(sum(rewards))
+    for _ in range(1):
+        env.reset()
+        done = False
+        action = 0
+        while not done:
+            # gym_action = env.action_space.sample()
+            gym_action = env.convert_action_to_gym(action)
+            obs, _, terminated, truncated, _ = env.step(gym_action)
+            action = pid.update(env.t, obs["power"], env.profile(env.t))
+            if terminated or truncated:
+                done = True
+
+
+    # # RL training and testing loop using the microreactor environment and ppo
+
+    # vec_env = make_vec_env(MicroEnv, n_envs=6, env_kwargs={'render_mode': None})
+    # model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1)
+    # model.learn(total_timesteps=10000000)
+
+    # model.save("ppo_microreactor_10mil")
+
+    # # Test the trained agent
+    
+    # env = MicroEnv(render_mode="human")
+    # obs, _ = env.reset()
+    # rewards = []
+    
+    # done = False
+    # while not done:
+    #     # gym_action = env.action_space.sample()
+    #     gym_action, _states = model.predict(obs)
+    #     # gym_action = convert_action_to_gym(action)
+    #     obs, reward, terminated, truncated, _ = env.step(gym_action)
+    #     rewards.append(reward)
+    #     if terminated or truncated:
+    #         done = True
+    #     vec_env.render(mode="human")
+
+    # print(sum(rewards))
 
 
 if __name__ == '__main__':
