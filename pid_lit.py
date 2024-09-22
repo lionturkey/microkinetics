@@ -250,8 +250,6 @@ def random_desired_profile(length=200):
     cutoffs.sort()
     values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
 
-    print(cutoffs)
-    print(values)
     def desired_profile(t):
         for i, cutoff in enumerate(cutoffs):
             if abs(t - cutoff) < 5: # WARNING: magic number ramp window of 10
