@@ -28,7 +28,7 @@ def train_model_loop(run_name: str, num_timesteps: int = 10000000,
 
     checksteps = round(num_timesteps/num_checkpoints)
     checkpoint_callback = CheckpointCallback(save_freq=checksteps,
-                                             save_path=f'runs/{run_name}',
+                                             save_path=f'./runs/{run_name}',
                                              name_prefix=f'PPO_{run_name}')
     model.learn(total_timesteps=num_timesteps, callback=checkpoint_callback)
     model.save(f'ppo_microreactor_{num_timesteps}')
@@ -78,8 +78,10 @@ def main(args):
             train_model_loop(run_name, num_envs=args.num_envs,
                              num_timesteps=args.num_timesteps,
                              n_steps=args.nsteps)
+            saved_models = list(run_folder.glob('*.zip'))
+            latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
+            load_model_loop(run_name, latest_model)
         case 'load':
-            pass
             saved_models = list(run_folder.glob('*.zip'))
             latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
             load_model_loop(run_name, latest_model)
