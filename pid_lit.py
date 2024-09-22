@@ -190,6 +190,8 @@ class MicroEnv(gym.Env):
         return observation, reward, False, truncated, info
 
     def calc_reward(self, power, true_action):
+        if abs((power - self.profile(self.t))) > 10:
+            return -abs((power - self.profile(self.t)))
         return 1 / (abs((power - self.profile(self.t))))
         # return 1 / ((power - self.profile(self.t)) + abs(true_action))
 
