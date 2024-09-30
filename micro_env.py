@@ -194,10 +194,12 @@ class MicroEnv(gym.Env):
         return observation, reward, False, truncated, info
 
     def calc_reward(self, power, true_action):
-        if abs((power - self.profile(self.t))) > 10:
-            return -abs((power - self.profile(self.t)))
-        return 1 / (abs((power - self.profile(self.t))))
-        # return 1 / ((power - self.profile(self.t)) + abs(true_action))
+        diff = min(100, abs(power - self.profile(self.t)))
+        if diff < 5:
+            return 1 / diff
+        else:
+            return -diff
+
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
