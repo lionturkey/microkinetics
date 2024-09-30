@@ -6,6 +6,7 @@ import stable_baselines3 as sb3
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import VecMonitor
+from stable_baselines3.common.monitor import Monitor
 
 def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
     # Build GIF
@@ -22,15 +23,23 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
 def train_model_loop(run_name: str,
                      num_timesteps: int = 1000000,
                      num_envs: int = 6,
-                     n_steps: int = 2048):
+                     n_steps: int = 2048,
+                     pretrained_model_path: Path = None
+                     ):
     vec_env = make_vec_env(MicroEnv, n_envs=num_envs,
                            env_kwargs={'render_mode': None})
     vec_env = VecMonitor(vec_env,
-                         log_dir=f'./runs/{run_name}/logs/monitor.log')
-    model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1, n_steps=n_steps,
-                    tensorboard_log=f'./runs/{run_name}/logs/')
+                         filename=f'./runs/{run_name}/logs/vec')
+    if pretrained_model_path is not None:
+        model = sb3.PPO.load(pretrained_model_path, vec_env=vec_env,
+                             tensorboard_log=f'./runs/{run_name}/logs/')
+    else:
+        model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
+                        n_steps=n_steps,
+                        tensorboard_log=f'./runs/{run_name}/logs/')
 
     eval_env = MicroEnv()
+    eval_env = Monitor(eval_env, filename=f'./runs/{run_name}/logs/eval')
     eval_callback = EvalCallback(eval_env=eval_env,
                                      best_model_save_path=f'./runs/{run_name}',
                                      log_path=f'./runs/{run_name}/logs/',
@@ -81,9 +90,14 @@ def main(args):
 
     match args.run_type:
         case 'train':
+            saved_models = list(run_folder.glob('*.zip'))
+            latest_model = None
+            if len(saved_models) > 0:
+                latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
             train_model_loop(run_name, num_envs=args.num_envs,
                              num_timesteps=args.num_timesteps,
-                             n_steps=args.nsteps)
+                             n_steps=args.nsteps,
+                             pretrained_model_path=latest_model)
             saved_models = list(run_folder.glob('*.zip'))
             latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
             load_model_loop(run_name, latest_model)
