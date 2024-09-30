@@ -153,7 +153,7 @@ class MicroEnv(gym.Env):
 
         self.action_space = gym.spaces.Discrete(101)
         self.observation_space = gym.spaces.Dict({
-            "angle": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
 
@@ -171,11 +171,12 @@ class MicroEnv(gym.Env):
         self.t += 1
 
         # normalize observations between 0 and 1
-        normalized_drum_position = self.simulator.drum_position / 180
+        # normalized_drum_position = self.simulator.drum_position / 180
+        normalized_desired_power = self.profile(self.t) / 100
         normalized_power = power / 100
 
         observation = {
-            "angle": np.array([normalized_drum_position]),
+            "desired_power": np.array([normalized_desired_power]),
             "power": np.array([normalized_power]),
         }
 
@@ -186,7 +187,7 @@ class MicroEnv(gym.Env):
         else:
             truncated = False
         
-        if power > 105 or abs(power - self.profile(self.t)) > 10:
+        if power > 105 or abs(power - self.profile(self.t)) > 2:
             reward = -100
             terminated = True
         else:
@@ -218,9 +219,11 @@ class MicroEnv(gym.Env):
             plt.ion()
             self.render()
 
+        normalized_desired_power = self.profile(self.t) / 100
+        normalized_power = power / 100
         observation = {
-            "angle": np.array([self.simulator.drum_position]),
-            "power": np.array([power]),
+            "desired_power": np.array([normalized_desired_power]),
+            "power": np.array([normalized_power]),
         }
         return observation, {}
 
@@ -255,6 +258,22 @@ class MicroEnv(gym.Env):
 
     def seed(self):
         pass
+
+# hardcoded_cutoffs = [
+#     [10, 50, 70, 150, 165],
+#     [30, 45, 77, 128, 160],
+#     [5, 53, 72, 130, 187],
+#     [10, 50, 70, 150, 200],
+#     [10, 50, 70, 150, 200],
+# ]
+
+# hardcoded_values = [
+#     [100, 40, 70, 40, 80, 40],
+#     [100, 40, 70, 40, 80, 40],
+#     [100, 40, 70, 40, 80, 40],
+#     [100, 40, 70, 40, 80, 40],
+#     [100, 40, 70, 40, 80, 40],
+# ]
 
 def random_desired_profile(length=200):
     num_cutoffs = np.random.randint(3, 7)
