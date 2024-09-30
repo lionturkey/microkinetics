@@ -1,10 +1,11 @@
 import imageio  
 from pathlib import Path
 import argparse
-from pid_lit import MicroEnv, PIDController
+from micro_env import MicroEnv, PIDController
 import stable_baselines3 as sb3
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.vec_env import VecMonitor
 
 def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
     # Build GIF
@@ -19,19 +20,28 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
 
 # TODO Add training loop with callback to save (20 per test)
 # TODO Run n_steps from 4 to 4000
-def train_model_loop(run_name: str, num_timesteps: int = 10000000,
+def train_model_loop(run_name: str, num_timesteps: int = 1000000,
                      num_checkpoints: int = 20, num_envs: int = 6,
-                     n_steps: int = 200):
+                     n_steps: int = 2048):
     vec_env = make_vec_env(MicroEnv, n_envs=num_envs,
                            env_kwargs={'render_mode': None})
-    model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1, n_steps=n_steps)
+    vec_env = VecMonitor(vec_env,
+                         log_dir=f'./runs/{run_name}/logs/monitor.log')
+    model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1, n_steps=n_steps,
+                    tensorboard_log=f'./runs/{run_name}/logs/')
 
-    checksteps = round(num_timesteps/num_checkpoints)
-    checkpoint_callback = CheckpointCallback(save_freq=checksteps,
-                                             save_path=f'./runs/{run_name}',
-                                             name_prefix=f'PPO_{run_name}')
-    model.learn(total_timesteps=num_timesteps, callback=checkpoint_callback)
-    model.save(f'ppo_microreactor_{num_timesteps}')
+    # checksteps = round(num_timesteps/num_checkpoints)
+    # checkpoint_callback = CheckpointCallback(save_freq=checksteps,
+    #                                          save_path=f'./runs/{run_name}',
+    #                                          name_prefix=f'PPO_{run_name}')
+    eval_env = MicroEnv()
+    eval_callback = EvalCallback(eval_env=eval_env,
+                                     best_model_save_path=f'./runs/{run_name}',
+                                     log_path=f'./runs/{run_name}/logs/',
+                                     deterministic=True,
+                                     eval_freq=1000)
+
+    model.learn(total_timesteps=num_timesteps, callback=eval_callback)
 
 
 def load_model_loop(run_name: str, model_path: Path):
