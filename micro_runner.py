@@ -24,7 +24,8 @@ def train_model_loop(run_name: str,
                      num_timesteps: int = 1000000,
                      num_envs: int = 6,
                      n_steps: int = 2048,
-                     pretrained_model_path: Path = None
+                     pretrained_model_path: Path = None,
+                     pretrained_timesteps: int = 0,
                      ):
     # tensorboard_dir = f'./runs/tb_logs/'
     tensorboard_dir = f'./runs/{run_name}/logs/'
@@ -35,6 +36,7 @@ def train_model_loop(run_name: str,
     if pretrained_model_path is not None:
         model = sb3.PPO.load(pretrained_model_path, env=vec_env,
                              tensorboard_log=tensorboard_dir)
+        model.num_timesteps = pretrained_timesteps
     else:
         model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
                         n_steps=n_steps,
@@ -50,6 +52,7 @@ def train_model_loop(run_name: str,
 
     model.learn(total_timesteps=num_timesteps, callback=eval_callback,
                 reset_num_timesteps=False)
+    model.save(f'./runs/{run_name}/{num_timesteps}.zip')
 
 
 def load_model_loop(run_name: str, model_path: Path):
@@ -95,19 +98,24 @@ def main(args):
         case 'train':
             saved_models = list(run_folder.glob('*.zip'))
             latest_model = None
+            pretrained_timesteps = 0
             if len(saved_models) > 0:
                 latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
+                pretrained_timesteps = int(latest_model.stem)
             train_model_loop(run_name, num_envs=args.num_envs,
                              num_timesteps=args.num_timesteps,
                              n_steps=args.nsteps,
-                             pretrained_model_path=latest_model)
+                             pretrained_model_path=latest_model,
+                             pretrained_timesteps=pretrained_timesteps)
+            best_model = list(run_folder.glob('best_model.zip'))[0]
             saved_models = list(run_folder.glob('*.zip'))
             latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
             load_model_loop(run_name, latest_model)
         case 'load':
+            best_model = list(run_folder.glob('best_model.zip'))[0]
             saved_models = list(run_folder.glob('*.zip'))
             latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
-            load_model_loop(run_name, latest_model)
+            load_model_loop(run_name, best_model)
         case 'pid':
             pid_loop(run_name, run_folder)
         case _:
