@@ -96,11 +96,11 @@ def main(args):
 
     match args.run_type:
         case 'train':
-            saved_models = list(run_folder.glob('*.zip'))
+            saved_models = list(run_folder.glob('*0.zip'))
             latest_model = None
             pretrained_timesteps = 0
             if len(saved_models) > 0:
-                latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
+                latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
                 pretrained_timesteps = int(latest_model.stem)
             train_model_loop(run_name, num_envs=args.num_envs,
                              num_timesteps=args.num_timesteps,
@@ -109,13 +109,13 @@ def main(args):
                              pretrained_timesteps=pretrained_timesteps)
             best_model = list(run_folder.glob('best_model.zip'))[0]
             saved_models = list(run_folder.glob('*.zip'))
-            latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
+            latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
             load_model_loop(run_name, latest_model)
         case 'load':
             best_model = list(run_folder.glob('best_model.zip'))[0]
-            saved_models = list(run_folder.glob('*.zip'))
-            latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[0]
-            load_model_loop(run_name, best_model)
+            saved_models = list(run_folder.glob('*0.zip'))
+            latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
+            load_model_loop(run_name, latest_model)
         case 'pid':
             pid_loop(run_name, run_folder)
         case _:

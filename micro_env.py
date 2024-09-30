@@ -297,8 +297,6 @@ def random_desired_profile(length=200):
     return desired_profile
 
 
-
-
 def main():
     # create a microreactor simulator and a PID controller
     env = MicroEnv(render_mode="human")
@@ -315,34 +313,6 @@ def main():
             action = pid.update(env.t, obs["power"], env.profile(env.t))
             if terminated or truncated:
                 done = True
-
-
-    # # RL training and testing loop using the microreactor environment and ppo
-
-    # vec_env = make_vec_env(MicroEnv, n_envs=6, env_kwargs={'render_mode': None})
-    # model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1)
-    # model.learn(total_timesteps=10000000)
-
-    # model.save("ppo_microreactor_10mil")
-
-    # # Test the trained agent
-    
-    # env = MicroEnv(render_mode="human")
-    # obs, _ = env.reset()
-    # rewards = []
-    
-    # done = False
-    # while not done:
-    #     # gym_action = env.action_space.sample()
-    #     gym_action, _states = model.predict(obs)
-    #     # gym_action = convert_action_to_gym(action)
-    #     obs, reward, terminated, truncated, _ = env.step(gym_action)
-    #     rewards.append(reward)
-    #     if terminated or truncated:
-    #         done = True
-    #     vec_env.render(mode="human")
-
-    # print(sum(rewards))
 
 
 if __name__ == '__main__':
