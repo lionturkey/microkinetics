@@ -185,13 +185,19 @@ class MicroEnv(gym.Env):
             truncated = True
         else:
             truncated = False
+        
+        if power > 105 or abs(power - self.profile(self.t)) > 10:
+            reward = -100
+            terminated = True
+        else:
+            terminated = False
 
         info = {
             "actions": true_action,
         }
         if self.render_mode == "human":
             self.render()
-        return observation, reward, False, truncated, info
+        return observation, reward, terminated, truncated, info
 
     def calc_reward(self, power, true_action):
         diff = min(100, abs(power - self.profile(self.t)))
@@ -231,7 +237,7 @@ class MicroEnv(gym.Env):
         plt.xlabel('Time (s)')
         plt.ylabel('Power')
         plt.legend()
-        plt.pause(.01)
+        plt.pause(.001)
 
         if self.run_name:
             plt.savefig(f'runs/{self.run_name}/{self.t}.png')
