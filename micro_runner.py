@@ -26,17 +26,19 @@ def train_model_loop(run_name: str,
                      n_steps: int = 2048,
                      pretrained_model_path: Path = None
                      ):
+    # tensorboard_dir = f'./runs/tb_logs/'
+    tensorboard_dir = f'./runs/{run_name}/logs/'
     vec_env = make_vec_env(MicroEnv, n_envs=num_envs,
                            env_kwargs={'render_mode': None})
     vec_env = VecMonitor(vec_env,
                          filename=f'./runs/{run_name}/logs/vec')
     if pretrained_model_path is not None:
-        model = sb3.PPO.load(pretrained_model_path, vec_env=vec_env,
-                             tensorboard_log=f'./runs/{run_name}/logs/')
+        model = sb3.PPO.load(pretrained_model_path, env=vec_env,
+                             tensorboard_log=tensorboard_dir)
     else:
         model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
                         n_steps=n_steps,
-                        tensorboard_log=f'./runs/{run_name}/logs/')
+                        tensorboard_log=tensorboard_dir)
 
     eval_env = MicroEnv()
     eval_env = Monitor(eval_env, filename=f'./runs/{run_name}/logs/eval')
@@ -46,7 +48,8 @@ def train_model_loop(run_name: str,
                                      deterministic=True,
                                      eval_freq=1000)
 
-    model.learn(total_timesteps=num_timesteps, callback=eval_callback)
+    model.learn(total_timesteps=num_timesteps, callback=eval_callback,
+                reset_num_timesteps=False)
 
 
 def load_model_loop(run_name: str, model_path: Path):
