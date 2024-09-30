@@ -18,10 +18,10 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
             filepath.unlink()
 
 
-# TODO Add training loop with callback to save (20 per test)
 # TODO Run n_steps from 4 to 4000
-def train_model_loop(run_name: str, num_timesteps: int = 1000000,
-                     num_checkpoints: int = 20, num_envs: int = 6,
+def train_model_loop(run_name: str,
+                     num_timesteps: int = 1000000,
+                     num_envs: int = 6,
                      n_steps: int = 2048):
     vec_env = make_vec_env(MicroEnv, n_envs=num_envs,
                            env_kwargs={'render_mode': None})
@@ -30,10 +30,6 @@ def train_model_loop(run_name: str, num_timesteps: int = 1000000,
     model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1, n_steps=n_steps,
                     tensorboard_log=f'./runs/{run_name}/logs/')
 
-    # checksteps = round(num_timesteps/num_checkpoints)
-    # checkpoint_callback = CheckpointCallback(save_freq=checksteps,
-    #                                          save_path=f'./runs/{run_name}',
-    #                                          name_prefix=f'PPO_{run_name}')
     eval_env = MicroEnv()
     eval_callback = EvalCallback(eval_env=eval_env,
                                      best_model_save_path=f'./runs/{run_name}',
@@ -111,10 +107,10 @@ if __name__ == '__main__':
     parser.add_argument('run_name', type=str, help='Name of the run')
     parser.add_argument('--run_type', type=str, default='train',
                         help='Must be train, load, or pid')
-    parser.add_argument('--num_timesteps', type=int, default=2500000,)
+    parser.add_argument('--num_timesteps', type=int, default=1000000,)
     parser.add_argument('--num_envs', type=int, default=6,
                         help='Number of parallel environments during training')
-    parser.add_argument('--nsteps', type=int, default=4,
+    parser.add_argument('--nsteps', type=int, default=2048,
                         help='PPO hyperparameter')
     
     args = parser.parse_args()
