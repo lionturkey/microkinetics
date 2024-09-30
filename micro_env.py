@@ -153,8 +153,8 @@ class MicroEnv(gym.Env):
 
         self.action_space = gym.spaces.Discrete(101)
         self.observation_space = gym.spaces.Dict({
-            "angle": gym.spaces.Box(low=0, high=180, shape=(1,), dtype=np.float32),
-            "power": gym.spaces.Box(low=0, high=100, shape=(1,), dtype=np.float32),
+            "angle": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
 
         self.reset()
@@ -170,9 +170,13 @@ class MicroEnv(gym.Env):
         power, _precursors = self.simulator.step(true_action)
         self.t += 1
 
+        # normalize observations between 0 and 1
+        normalized_drum_position = self.simulator.drum_position / 180
+        normalized_power = power / 100
+
         observation = {
-            "angle": np.array([self.simulator.drum_position]),
-            "power": np.array([power]),
+            "angle": np.array([normalized_drum_position]),
+            "power": np.array([normalized_power]),
         }
 
         reward = self.calc_reward(power, true_action)
