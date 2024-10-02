@@ -187,7 +187,7 @@ class MicroEnv(gym.Env):
         else:
             truncated = False
         
-        if power > 105 or abs(power - self.profile(self.t)) > 2:
+        if power > 105 or abs(power - self.profile(self.t)) > 5:
             reward = -100
             terminated = True
         else:
@@ -259,21 +259,21 @@ class MicroEnv(gym.Env):
     def seed(self):
         pass
 
-# hardcoded_cutoffs = [
-#     [10, 50, 70, 150, 165],
-#     [30, 45, 77, 128, 160],
-#     [5, 53, 72, 130, 187],
-#     [10, 50, 70, 150, 200],
-#     [10, 50, 70, 150, 200],
-# ]
+hardcoded_cutoffs = [
+    [10, 50, 70, 150, 165],
+    # [30, 45, 77, 128, 160],
+    # [5, 53, 72, 130, 187],
+    # [10, 50, 70, 150, 200],
+    # [10, 50, 70, 150, 200],
+]
 
-# hardcoded_values = [
-#     [100, 40, 70, 40, 80, 40],
-#     [100, 40, 70, 40, 80, 40],
-#     [100, 40, 70, 40, 80, 40],
-#     [100, 40, 70, 40, 80, 40],
-#     [100, 40, 70, 40, 80, 40],
-# ]
+hardcoded_values = [
+    [100, 40, 70, 40, 80, 40],
+    # [100, 40, 70, 40, 80, 40],
+    # [100, 40, 70, 40, 80, 40],
+    # [100, 40, 70, 40, 80, 40],
+    # [100, 40, 70, 40, 80, 40],
+]
 
 def random_desired_profile(length=200):
     num_cutoffs = np.random.randint(3, 7)
@@ -282,6 +282,10 @@ def random_desired_profile(length=200):
     np.clip(cutoffs, 0, length, out=cutoffs)
     cutoffs.sort()
     values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
+
+    # WARNING: hardcoded values
+    cutoffs = np.array(hardcoded_cutoffs[0])
+    values = hardcoded_values[0]
 
     def desired_profile(t):
         for i, cutoff in enumerate(cutoffs):

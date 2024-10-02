@@ -52,7 +52,7 @@ def train_model_loop(run_name: str,
 
     model.learn(total_timesteps=num_timesteps, callback=eval_callback,
                 reset_num_timesteps=False)
-    model.save(f'./runs/{run_name}/{num_timesteps}.zip')
+    model.save(f'./runs/{run_name}/{model.num_timesteps}.zip')
 
 
 def load_model_loop(run_name: str, model_path: Path):
@@ -108,14 +108,16 @@ def main(args):
                              pretrained_model_path=latest_model,
                              pretrained_timesteps=pretrained_timesteps)
             best_model = list(run_folder.glob('best_model.zip'))[0]
-            saved_models = list(run_folder.glob('*.zip'))
-            latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
+            saved_models = list(run_folder.glob('*0.zip'))
+            if len(saved_models) > 0:
+                latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
             load_model_loop(run_name, latest_model)
         case 'load':
             best_model = list(run_folder.glob('best_model.zip'))[0]
             saved_models = list(run_folder.glob('*0.zip'))
-            latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
-            load_model_loop(run_name, latest_model)
+            if len(saved_models) > 0:
+                latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
+            load_model_loop(run_name, best_model)
         case 'pid':
             pid_loop(run_name, run_folder)
         case _:
