@@ -151,7 +151,8 @@ class MicroEnv(gym.Env):
         self.episode_length = episode_length
         self.run_name = run_name
 
-        self.action_space = gym.spaces.Discrete(101)
+        # self.action_space = gym.spaces.Discrete(101)
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
             "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
@@ -161,7 +162,9 @@ class MicroEnv(gym.Env):
     
     def convert_action(self, action):
         """Convert from the 0 to 10 discrete gym action space to each tenth from -0.5 to 0.5"""
-        return -0.5 + action / 100.0
+        # return -0.5 + action / 100.0
+        # TODO
+        return action / 2
 
     def step(self, action):
         if self.t >= self.episode_length:
@@ -187,7 +190,7 @@ class MicroEnv(gym.Env):
         else:
             truncated = False
         
-        if power > 105 or abs(power - self.profile(self.t)) > 5:
+        if power > 105 or abs(power - self.profile(self.t)) > 2:
             reward = -100
             terminated = True
         else:
@@ -251,7 +254,8 @@ class MicroEnv(gym.Env):
 
     def convert_action_to_gym(self, action):
         """Convert from the -0.5 to 0.5 to the 0 to 100 discrete gym action space"""
-        return round((action + 0.5) * 100.0)
+        # return round((action + 0.5) * 100.0)
+        return action * 2
 
     def close(self):
         pass
