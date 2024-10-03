@@ -124,7 +124,7 @@ class MicroReactorSimulator:
         
         self.drum_history.append(self.drum_position)
         self.action_history.append(action)
-        self.power_history.append(self.power)
+        self.power_history.append(self.power.item())
         self.time += step_size
         self.time_history.append(self.time)
         return self.power, self.precursors
@@ -164,7 +164,7 @@ class MicroEnv(gym.Env):
         """Convert from the 0 to 10 discrete gym action space to each tenth from -0.5 to 0.5"""
         # return -0.5 + action / 100.0
         # TODO
-        return action / 2
+        return action.item() / 2
 
     def step(self, action):
         if self.t >= self.episode_length:
@@ -190,8 +190,8 @@ class MicroEnv(gym.Env):
         else:
             truncated = False
         
-        if power > 105 or abs(power - self.profile(self.t)) > 2:
-            reward = -100
+        if power > 105 or abs(power - self.profile(self.t)) > 10:
+            reward = -1000
             terminated = True
         else:
             terminated = False
@@ -204,11 +204,12 @@ class MicroEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def calc_reward(self, power, true_action):
-        diff = min(100, abs(power - self.profile(self.t)))
-        if diff < 5:
-            return 1 / diff
-        else:
-            return -diff
+        diff = abs(power - self.profile(self.t))
+        return min(100, 1 / diff)
+        # if diff < 5:
+        #     return 1 / diff
+        # else:
+        #     return -diff
 
 
     def reset(self, seed=None, options=None):
@@ -264,15 +265,15 @@ class MicroEnv(gym.Env):
         pass
 
 hardcoded_cutoffs = [
-    [10, 50, 70, 150, 165],
-    # [30, 45, 77, 128, 160],
+    # [10, 50, 70, 150, 165],
+    [30, 45, 77, 128, 160],
     # [5, 53, 72, 130, 187],
     # [10, 50, 70, 150, 200],
     # [10, 50, 70, 150, 200],
 ]
 
 hardcoded_values = [
-    [100, 40, 70, 40, 80, 40],
+    [100, 80, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
@@ -287,15 +288,15 @@ def random_desired_profile(length=200):
     cutoffs.sort()
     values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
 
-    # WARNING: hardcoded values
-    cutoffs = np.array(hardcoded_cutoffs[0])
-    values = hardcoded_values[0]
+    # # WARNING: hardcoded values
+    # cutoffs = np.array(hardcoded_cutoffs[0])
+    # values = hardcoded_values[0]
 
     def desired_profile(t):
         for i, cutoff in enumerate(cutoffs):
-            if abs(t - cutoff) < 5: # WARNING: magic number ramp window of 10
+            if abs(t - cutoff) < 8: # WARNING: magic number ramp window of 10
                 # use point slope form: y = m(x-x0) + y0 at cutoff
-                power = (((values[i+1] - values[i]) / 10) *
+                power = (((values[i+1] - values[i]) / 16) *
                          (t - cutoff) + (values[i] + values[i+1]) / 2)
                 return power
             elif t < cutoff:
