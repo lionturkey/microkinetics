@@ -10,7 +10,10 @@ from stable_baselines3.common.monitor import Monitor
 
 def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
     # Build GIF
-    png_list = [(png_folder / f'{i}.png') for i in range(200)]
+    png_list = list(png_folder.glob('*.png'))
+    num_list = sorted([int(png.stem) for png in png_list])
+    max_num = num_list[-1]
+    png_list = [(png_folder / f'{i}.png') for i in range(max_num + 1)]
     with imageio.get_writer((png_folder / f'{run_name}.gif'), mode='I') as writer:
         for filepath in png_list:
             image = imageio.imread(filepath)
@@ -96,7 +99,7 @@ def main(args):
 
     match args.run_type:
         case 'train':
-            saved_models = list(run_folder.glob('*0.zip'))
+            saved_models = list(run_folder.glob('*[0-9].zip'))
             latest_model = None
             pretrained_timesteps = 0
             if len(saved_models) > 0:
@@ -108,13 +111,13 @@ def main(args):
                              pretrained_model_path=latest_model,
                              pretrained_timesteps=pretrained_timesteps)
             best_model = list(run_folder.glob('best_model.zip'))[0]
-            saved_models = list(run_folder.glob('*0.zip'))
+            saved_models = list(run_folder.glob('*[0-9].zip'))
             if len(saved_models) > 0:
                 latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
             load_model_loop(run_name, latest_model)
         case 'load':
             best_model = list(run_folder.glob('best_model.zip'))[0]
-            saved_models = list(run_folder.glob('*0.zip'))
+            saved_models = list(run_folder.glob('*[0-9].zip'))
             if len(saved_models) > 0:
                 latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
             load_model_loop(run_name, best_model)
