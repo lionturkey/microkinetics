@@ -1,12 +1,15 @@
 import imageio  
 from pathlib import Path
 import argparse
-from micro_env import MicroEnv, PIDController
 import stable_baselines3 as sb3
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.monitor import Monitor
+
+from micro_gym import MicroEnv
+from controllers import PIDController
+
 
 def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
     # Build GIF

@@ -2,6 +2,6 @@ task:
 	date
 
 setupenv:
-	conda create -n micro --file requirements.txt
+	conda create -n micro -c conda-forge --file requirements.txt
 	conda activate micro
 	
