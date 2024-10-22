@@ -53,12 +53,15 @@ class MicroEnv(gym.Env):
     f_f = 0.96
     P_0 = 22e6
     # Tf0 = 1105 # sooyoung's code
-    Tf0 = 900
+    # Tf0 = 900 # kamal's code
+    Tf0 = 895
     # Tm0 = 1087 # sooyoung's code
-    Tm0 = 898
+    # Tm0 = 898 # kamal's code
+    Tm0 = 893
     T_in = 864
     T_out = 1106
     # Tc0 = (T_in + T_out) / 2 # sooyoung's code
+    # Tc0 = 888 # kamal's code
     Tc0 = 888
     K_fm = f_f * P_0 / (Tf0 - Tm0)
     K_mc = P_0 / (Tm0 - Tc0)
@@ -164,7 +167,7 @@ class MicroEnv(gym.Env):
             "desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }        
-        reward, terminated = self.calc_reward(current_power)
+        reward, terminated = self.calc_reward(current_power, real_action)
         truncated = False
         if self.time >= self.episode_length:
             truncated = True
@@ -181,25 +184,35 @@ class MicroEnv(gym.Env):
             self.render()
 
         return observation, reward, terminated, truncated, info
+    
 
-
-    def calc_reward(self, power):
+    def calc_reward(self, power, action):
+        tolerance = 0.05
         """Returns reward and whether the episode is terminated."""
-        # power = self.n_r * 100
+        # First component: give reward to stay in the correct range
         desired_power = self.desired_profile(self.time)
-        diff = power - desired_power
-        denominator = max(0.01, abs(diff))
-        reward = 1 / denominator
-        terminated = False
+        diff = abs(power - desired_power)
+        reward = min(100, 1 / diff)
 
-        acceptable_over = 10 * np.exp(-self.time / 200)
-        acceptable_under = 5 * np.exp(-self.time / 200)
-        if diff > acceptable_over or -diff > acceptable_under:
+        # # Second component: Give a reward if steady state
+        # if self.time < 2:
+        #     prev_power = 100
+        # else:
+        #     prev_power = self.desired_profile(self.time -2)
+
+        # if prev_power == desired_power and abs(action) <= tolerance:
+        #     reward = min(100, 1 / diff)
+        
+        # Third component: give a punish outside bounds
+        # acceptable_error = 10 * np.exp(-self.time / 50)
+        acceptable_error = 10 / (self.time**.3)
+        terminated = False
+        if power > 110 or diff > acceptable_error:
             reward = -1000
             terminated = True
- 
+        
         return reward, terminated
-    
+
 
     def render(self):
         # plot the actual power profile over time compared to the desired profile
