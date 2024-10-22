@@ -91,7 +91,7 @@ def pid_loop(run_name: str, run_folder: Path):
             env.render()
             gym_action = env.convert_action_to_gym(action)
             obs, _, terminated, truncated, _ = env.step(gym_action)
-            action = pid.update(env.t, obs["power"], env.profile(env.t))
+            action = pid.update(env.time, obs["power"], env.desired_profile(env.time))
             if terminated or truncated:
                 done = True
 

@@ -245,18 +245,20 @@ class MicroEnv(gym.Env):
         """Convert from the -1 to 1 box space to -0.5 to 0.5"""
         # return -0.5 + action / 100.0
         # TODO
+        if isinstance(action, float):
+            return action / 2
         return action.item() / 2
 
     def step(self, action):
-        if self.t >= self.episode_length:
+        if self.time >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
         true_action = self.convert_action(action)
         power, _precursors = self.simulator.step(true_action)
-        self.t += 1
+        self.time += 1
 
         # normalize observations between 0 and 1
         # normalized_drum_position = self.simulator.drum_position / 180
-        normalized_desired_power = self.profile(self.t) / 100
+        normalized_desired_power = self.desired_profile(self.time + 1) / 100
         normalized_power = power / 100
 
         observation = {
@@ -264,47 +266,47 @@ class MicroEnv(gym.Env):
             "power": np.array([normalized_power]),
         }
 
-        reward = self.calc_reward(power, true_action)
-
-        if self.t >= self.episode_length:
+        reward, terminated = self.calc_reward(power)
+        truncated = False
+        if self.time >= self.episode_length-1:
             truncated = True
-        else:
-            truncated = False
-        
-        if power > 105 or abs(power - self.profile(self.t)) > 10:
-            reward = -1000
-            terminated = True
-        else:
-            terminated = False
-
-        info = {
-            "actions": true_action,
-        }
+        info = {}
         if self.render_mode == "human":
             self.render()
         return observation, reward, terminated, truncated, info
 
-    def calc_reward(self, power, true_action):
-        diff = abs(power - self.profile(self.t))
-        return min(100, 1 / diff)
-        # if diff < 5:
-        #     return 1 / diff
-        # else:
-        #     return -diff
+
+    def calc_reward(self, power):
+        """Returns reward and whether the episode is terminated."""
+        # power = self.n_r * 100
+        desired_power = self.desired_profile(self.time)
+        diff = power - desired_power
+        denominator = max(0.01, abs(diff))
+        reward = 1 / denominator
+        terminated = False
+
+        acceptable_over = 10 * np.exp(-self.time / 200)
+        acceptable_under = 5 * np.exp(-self.time / 200)
+        if diff > acceptable_over or -diff > acceptable_under:
+            reward = -1000
+            terminated = True
+ 
+        return reward, terminated
 
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.simulator = MicroReactorSimulator(self.num_drums, self.d_time)
         # self.fig = plt.figure(figsize=(5,5), dpi=100)
-        self.t = 0
+        self.time = 0
         power = 100
-        self.profile = random_desired_profile()
+        self.desired_profile = random_desired_profile()
+        # self.desired_profile = random_desired_profile(hardcoded=True)
         if self.render_mode == "human":
             plt.ion()
             self.render()
 
-        normalized_desired_power = self.profile(self.t) / 100
+        normalized_desired_power = self.desired_profile(self.time + 1) / 100
         normalized_power = power / 100
         observation = {
             "desired_power": np.array([normalized_desired_power]),
@@ -320,7 +322,7 @@ class MicroEnv(gym.Env):
         plt.plot(self.simulator.time_history, self.simulator.power_history,
                  label='Actual')
         plt.plot(self.simulator.time_history,
-                 [self.profile(t) for t in self.simulator.time_history],
+                 [self.desired_profile(t) for t in self.simulator.time_history],
                  label='Desired')
         plt.xlabel('Time (s)')
         plt.ylabel('Power')
@@ -328,7 +330,7 @@ class MicroEnv(gym.Env):
         plt.pause(.001)
 
         if self.run_name:
-            plt.savefig(f'runs/{self.run_name}/{self.t}.png')
+            plt.savefig(f'runs/{self.run_name}/{self.time}.png')
         # if self.render_mode == "human":
         #     return image_from_plot
         # elif self.render_mode == "rgb_array":
@@ -355,6 +357,7 @@ hardcoded_cutoffs = [
 
 hardcoded_values = [
     [100, 80, 70, 40, 80, 40],
+    # [100, 80, 70, 40, 60, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
