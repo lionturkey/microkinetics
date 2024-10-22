@@ -14,8 +14,7 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
     # Build GIF
     png_list = list(png_folder.glob('*.png'))
     num_list = sorted([int(png.stem) for png in png_list])
-    max_num = num_list[-1]
-    png_list = [(png_folder / f'{i}.png') for i in range(max_num + 1)]
+    png_list = [(png_folder / f'{i}.png') for i in num_list]
     with imageio.get_writer((png_folder / f'{run_name}.gif'), mode='I') as writer:
         for filepath in png_list:
             image = imageio.imread(filepath)
@@ -24,7 +23,7 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
             filepath.unlink()
 
 
-class kMicroEnv(gym.Env):
+class MicroEnv(gym.Env):
     metadata = {
         "render_modes": ["human", "rgb_array"],
         "render_fps": 15,
@@ -96,20 +95,23 @@ class kMicroEnv(gym.Env):
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
-            "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
         
         if run_name is not None:
             self.run_folder = Path.cwd() / 'runs' / run_name
             self.run_folder.mkdir(parents=True, exist_ok=True)
+
+        _, self.ax = plt.subplots(5, 1, figsize=(8, 12))
             
         self.reset()
 
 
     def reset(self, seed=None, options=None):
         super(self.__class__, self).reset(seed=seed)
-        self.desired_profile = random_desired_profile()
+        # self.desired_profile = random_desired_profile()
+        self.desired_profile = random_desired_profile(hardcoded=True)
         initial_power = self.desired_profile(0)
         self.n_r = initial_power / 100
         self.precursor_concentrations = np.array([self.n_r] * 6)
@@ -124,7 +126,7 @@ class kMicroEnv(gym.Env):
         current_power = self.n_r * 100
         next_desired_power = self.desired_profile(self.time + 1)
         observation = {
-            "next_desired_power": np.array([next_desired_power]),
+            "desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }
 
@@ -133,7 +135,6 @@ class kMicroEnv(gym.Env):
         self.moderator_temp_history = [self.Tm]
         self.coolant_temp_history = [self.Tc]
         self.action_history = [0]
-        _, self.ax = plt.subplots(5, 1, figsize=(8, 12))
 
         return observation, {}
 
@@ -160,10 +161,10 @@ class kMicroEnv(gym.Env):
         next_desired_power = self.desired_profile(self.time + 1)
 
         observation = {
-            "next_desired_power": np.array([next_desired_power]),
+            "desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }        
-        reward, terminated = self.calc_reward()
+        reward, terminated = self.calc_reward(current_power)
         truncated = False
         if self.time >= self.episode_length:
             truncated = True
@@ -182,17 +183,18 @@ class kMicroEnv(gym.Env):
         return observation, reward, terminated, truncated, info
 
 
-    def calc_reward(self):
+    def calc_reward(self, power):
         """Returns reward and whether the episode is terminated."""
-        power = self.n_r * 100
+        # power = self.n_r * 100
         desired_power = self.desired_profile(self.time)
-        diff = abs(power - desired_power)
-        reward = min(100, 1 / diff)
+        diff = power - desired_power
+        denominator = max(0.01, abs(diff))
+        reward = 1 / denominator
         terminated = False
 
-        acceptable_error = 10 * np.exp(-self.time / 200)
-        print(power, desired_power, acceptable_error)
-        if power > 110 or diff > acceptable_error:
+        acceptable_over = 10 * np.exp(-self.time / 200)
+        acceptable_under = 5 * np.exp(-self.time / 200)
+        if diff > acceptable_over or -diff > acceptable_under:
             reward = -1000
             terminated = True
  
@@ -259,7 +261,7 @@ class kMicroEnv(gym.Env):
 
         # ODEs
         rho = self.Rho_d1 + self.alpha_f * (self.Tf - self.Tf0) + self.alpha_c * (self.Tc - self.Tc0) + self.alpha_m * (self.Tm - self.Tm0) - self.Sig_x * (self.X - self.Xe0) / self.Sum_f
-        print(rho, self.Rho_d1)
+        # print(rho, self.Rho_d1)
 
         # Kinetics equations with six-delayed neutron groups        
         d_n_r = (rho - self.beta) * self.n_r / self.l + np.sum(self.betas * self.precursor_concentrations / self.l)
@@ -289,7 +291,7 @@ class kMicroEnv(gym.Env):
         # print(self.n_r, self.precursor_concentrations, self.X, self.I, self.Tf, self.Tm, self.Tc)
 
 
-class MicroEnv(gym.Env):
+class OldMicroEnv(gym.Env):
     # WORK IN PROGRESS
     metadata = {
         "render_modes": ["human", "rgb_array"],
@@ -482,6 +484,7 @@ def main():
             action = pid.update(env.time, obs["power"], env.desired_profile(env.time+1))
             if terminated or truncated:
                 done = True
+    create_gif('ktest', (Path.cwd() / 'runs' / 'ktest'))
 
 
 if __name__ == '__main__':
