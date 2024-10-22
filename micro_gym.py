@@ -144,8 +144,6 @@ class MicroEnv(gym.Env):
 
     def convert_action(self, action):
         """Convert from the -1 to 1 box space to -0.5 to 0.5"""
-        # return -0.5 + action / 100.0
-        # TODO
         if isinstance(action, float):
             return action / 2
         return action.item() / 2
@@ -215,16 +213,6 @@ class MicroEnv(gym.Env):
 
 
     def render(self):
-        # plot the actual power profile over time compared to the desired profile
-        # plt.clf()
-        # plt.plot(self.power_history,
-        #          label='Actual')
-        # plt.plot([self.desired_profile(t) for t in range(len(self.power_history))],
-        #          label='Desired')
-        # plt.xlabel('Time (s)')
-        # plt.ylabel('Power')
-        # plt.legend()
-        # plt.pause(.001)
         self.ax[0].cla()
         self.ax[1].cla()
         self.ax[2].cla()
@@ -247,25 +235,14 @@ class MicroEnv(gym.Env):
         self.ax[2].set_ylabel('Action')
         self.ax[2].set_ylim(-1.1, 1.1)
         
-        # self.ax.tight_layout()
-        # self.ax.pause(.001)
-        
         plt.tight_layout()
         plt.pause(.001)
         if self.run_name:
             plt.savefig(f'runs/{self.run_name}/{self.time}.png')
-            # self.ax.savefig(f'runs/{self.run_name}/{self.time}.png')
-
-        # plt.clf()
-        # plt.close()
-
-        # if self.run_name:
-        #     plt.savefig(f'runs/{self.run_name}/{self.time}.png')
 
 
     def convert_action_to_gym(self, action):
         """Convert from the -0.5 to 0.5 to the 0 to 100 discrete gym action space"""
-        # return round((action + 0.5) * 100.0)
         return action * 2
 
 
@@ -274,7 +251,7 @@ class MicroEnv(gym.Env):
 
         # ODEs
         rho = self.Rho_d1 + self.alpha_f * (self.Tf - self.Tf0) + self.alpha_c * (self.Tc - self.Tc0) + self.alpha_m * (self.Tm - self.Tm0) - self.Sig_x * (self.X - self.Xe0) / self.Sum_f
-        # print(rho, self.Rho_d1)
+
 
         # Kinetics equations with six-delayed neutron groups        
         d_n_r = (rho - self.beta) * self.n_r / self.l + np.sum(self.betas * self.precursor_concentrations / self.l)
@@ -289,9 +266,6 @@ class MicroEnv(gym.Env):
         d_moderator_temp = (1 - self.f_f) * self.P_0 / self.mu_m * self.n_r + (self.K_fm * (self.Tf - self.Tm) - self.K_mc * (self.Tm - self.Tc)) / self.mu_m
         d_coolant_temp = self.K_mc * (self.Tm - self.Tc) / self.mu_c - 2 * self.M_dot * self.cp_c * (self.Tc - self.T_in) / self.mu_c
 
-        # print('deltas')
-        # print(d_n_r, d_precursor_concentrations, d_xenon, d_iodine, d_fuel_temp, d_moderator_temp, d_coolant_temp)
-
         self.n_r += d_n_r * self.dt
         self.precursor_concentrations += d_precursor_concentrations  * self.dt
         self.X += d_xenon  * self.dt
@@ -300,141 +274,6 @@ class MicroEnv(gym.Env):
         self.Tm += d_moderator_temp  * self.dt
         self.Tc += d_coolant_temp  * self.dt
 
-        # print('state values:')
-        # print(self.n_r, self.precursor_concentrations, self.X, self.I, self.Tf, self.Tm, self.Tc)
-
-
-class OldMicroEnv(gym.Env):
-    # WORK IN PROGRESS
-    metadata = {
-        "render_modes": ["human", "rgb_array"],
-        "render_fps": 15,
-    }
-
-    def __init__(self, num_drums=8, d_time=0.1, episode_length=200,
-                 render_mode=None, run_name=None):
-        self.num_drums = num_drums
-        self.d_time = d_time
-        if render_mode not in self.metadata["render_modes"] + [None]:
-            raise ValueError(f"Invalid render mode: {render_mode}")
-        self.render_mode = render_mode
-        self.episode_length = episode_length
-        self.run_name = run_name
-
-        # self.action_space = gym.spaces.Discrete(101)
-        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
-        self.observation_space = gym.spaces.Dict({
-            "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
-            "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
-        })
-
-        self.reset()
-    
-    def convert_action(self, action):
-        """Convert from the -1 to 1 box space to -0.5 to 0.5"""
-        # return -0.5 + action / 100.0
-        # TODO
-        if isinstance(action, float):
-            return action / 2
-        return action.item() / 2
-
-    def step(self, action):
-        if self.time >= self.episode_length:
-            raise RuntimeError("Episode length exceeded")
-        true_action = self.convert_action(action)
-        power, _precursors = self.simulator.step(true_action)
-        self.time += 1
-
-        # normalize observations between 0 and 1
-        # normalized_drum_position = self.simulator.drum_position / 180
-        normalized_desired_power = self.desired_profile(self.time + 1) / 100
-        normalized_power = power / 100
-
-        observation = {
-            "desired_power": np.array([normalized_desired_power]),
-            "power": np.array([normalized_power]),
-        }
-
-        reward, terminated = self.calc_reward(power)
-        truncated = False
-        if self.time >= self.episode_length-1:
-            truncated = True
-        info = {}
-        if self.render_mode == "human":
-            self.render()
-        return observation, reward, terminated, truncated, info
-
-
-    def calc_reward(self, power):
-        """Returns reward and whether the episode is terminated."""
-        # power = self.n_r * 100
-        desired_power = self.desired_profile(self.time)
-        diff = power - desired_power
-        denominator = max(0.01, abs(diff))
-        reward = 1 / denominator
-        terminated = False
-
-        acceptable_over = 10 * np.exp(-self.time / 200)
-        acceptable_under = 5 * np.exp(-self.time / 200)
-        if diff > acceptable_over or -diff > acceptable_under:
-            reward = -1000
-            terminated = True
- 
-        return reward, terminated
-
-
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        self.simulator = MicroReactorSimulator(self.num_drums, self.d_time)
-        # self.fig = plt.figure(figsize=(5,5), dpi=100)
-        self.time = 0
-        power = 100
-        self.desired_profile = random_desired_profile()
-        # self.desired_profile = random_desired_profile(hardcoded=True)
-        if self.render_mode == "human":
-            plt.ion()
-            self.render()
-
-        normalized_desired_power = self.desired_profile(self.time + 1) / 100
-        normalized_power = power / 100
-        observation = {
-            "desired_power": np.array([normalized_desired_power]),
-            "power": np.array([normalized_power]),
-        }
-        return observation, {}
-
-    def render(self):
-        # plot the actual power profile over time compared to the desired profile
-        # plt.ion()
-        # self.fig.clf()
-        plt.clf()
-        plt.plot(self.simulator.time_history, self.simulator.power_history,
-                 label='Actual')
-        plt.plot(self.simulator.time_history,
-                 [self.desired_profile(t) for t in self.simulator.time_history],
-                 label='Desired')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Power')
-        plt.legend()
-        plt.pause(.001)
-
-        if self.run_name:
-            plt.savefig(f'runs/{self.run_name}/{self.time}.png')
-        # if self.render_mode == "human":
-        #     return image_from_plot
-        # elif self.render_mode == "rgb_array":
-        #     return image_from_plot
-
-    def convert_action_to_gym(self, action):
-        """Convert from the -0.5 to 0.5 to the 0 to 100 discrete gym action space"""
-        # return round((action + 0.5) * 100.0)
-        return action * 2
-
-    def close(self):
-        pass
-
-    def seed(self):
-        pass
 
 hardcoded_cutoffs = [
     # [10, 50, 70, 150, 165],
