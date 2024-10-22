@@ -14,7 +14,7 @@ class PIDController:
         mutiplier: the multiplier for the gains based on the number of drums
     """
 
-    def __init__(self, Kp=10, Ki=0, Kd=.8, Kaw=0.3, T_C=0.2, max_rate=0.5, multiplier=1.0):
+    def __init__(self, Kp=5, Ki=10, Kd=.5, Kaw=25, T_C=0.2, max_rate=.5, multiplier=.01):
         self.Kp = Kp * multiplier
         self.Ki = Ki * multiplier
         self.Kd = Kd * multiplier
@@ -39,5 +39,6 @@ class PIDController:
         self.deriv_prev = (err - self.err_prev + self.T_C * self.deriv_prev) / (del_t + self.T_C)
         self.err_prev = err
         command = self.Kp * err + self.integral + self.Kd * self.deriv_prev
+        print(f'command {command}')
         command_sat = np.clip(command, -self.max_rate, self.max_rate)
         return command_sat[0]

@@ -3,6 +3,7 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 import stable_baselines3 as sb3
 from stable_baselines3.common.env_util import make_vec_env
+from pathlib import Path
 
 from point_kinetics import MicroReactorSimulator
 from controllers import PIDController
@@ -37,11 +38,14 @@ class kMicroEnv(gym.Env):
     mu_c = M_c * cp_c
     f_f = 0.96
     P_0 = 22e6
-    Tf0 = 1105
-    Tm0 = 1087
+    # Tf0 = 1105 # sooyoung's code
+    Tf0 = 900
+    # Tm0 = 1087 # sooyoung's code
+    Tm0 = 898
     T_in = 864
     T_out = 1106
-    Tc0 = (T_in + T_out) / 2
+    # Tc0 = (T_in + T_out) / 2 # sooyoung's code
+    Tc0 = 888
     K_fm = f_f * P_0 / (Tf0 - Tm0)
     K_mc = P_0 / (Tm0 - Tc0)
     M_dot = 1.75E+01
@@ -80,6 +84,11 @@ class kMicroEnv(gym.Env):
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
+        
+        if run_name is not None:
+            self.run_folder = Path.cwd() / 'runs' / run_name
+            self.run_folder.mkdir(parents=True, exist_ok=True)
+            
         self.reset()
 
 
@@ -105,6 +114,11 @@ class kMicroEnv(gym.Env):
         }
 
         self.power_history = [current_power]
+        self.fuel_temp_history = [self.Tf]
+        self.moderator_temp_history = [self.Tm]
+        self.coolant_temp_history = [self.Tc]
+        self.action_history = [0]
+        _, self.ax = plt.subplots(5, 1, figsize=(8, 12))
 
         return observation, {}
 
@@ -139,6 +153,16 @@ class kMicroEnv(gym.Env):
         if self.time >= self.episode_length:
             truncated = True
         info = {}
+        
+        # add to histories
+        self.power_history.append(current_power)
+        self.fuel_temp_history.append(self.Tf)
+        self.moderator_temp_history.append(self.Tm)
+        self.coolant_temp_history.append(self.Tc)
+        self.action_history.append(real_action)
+        
+        if self.render_mode == "human":
+            self.render()
 
         return observation, reward, terminated, truncated, info
 
@@ -162,18 +186,51 @@ class kMicroEnv(gym.Env):
 
     def render(self):
         # plot the actual power profile over time compared to the desired profile
-        plt.clf()
-        plt.plot(self.power_history,
-                 label='Actual')
-        plt.plot([self.desired_profile(t) for t in range(len(self.power_history))],
-                 label='Desired')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Power')
-        plt.legend()
-        plt.pause(.001)
+        # plt.clf()
+        # plt.plot(self.power_history,
+        #          label='Actual')
+        # plt.plot([self.desired_profile(t) for t in range(len(self.power_history))],
+        #          label='Desired')
+        # plt.xlabel('Time (s)')
+        # plt.ylabel('Power')
+        # plt.legend()
+        # plt.pause(.001)
+        self.ax[0].cla()
+        self.ax[1].cla()
+        self.ax[2].cla()
+        
+        self.ax[0].plot(self.power_history, label='Actual')
+        self.ax[0].plot([self.desired_profile(t) for t in range(len(self.power_history))], label='Desired')
+        self.ax[0].set_xlabel('Time (s)')
+        self.ax[0].set_ylabel('Power')
+        self.ax[0].legend()
 
+        self.ax[1].plot(self.fuel_temp_history, label='Fuel')
+        self.ax[1].plot(self.moderator_temp_history, label='Moderator')
+        self.ax[1].plot(self.coolant_temp_history, label='Coolant')
+        self.ax[1].set_xlabel('Time (s)')
+        self.ax[1].set_ylabel('Temperature')
+        self.ax[1].legend()
+
+        self.ax[2].plot(self.action_history)
+        self.ax[2].set_xlabel('Time (s)')
+        self.ax[2].set_ylabel('Action')
+        self.ax[2].set_ylim(-1.1, 1.1)
+        
+        # self.ax.tight_layout()
+        # self.ax.pause(.001)
+        
+        plt.tight_layout()
+        plt.pause(.001)
         if self.run_name:
             plt.savefig(f'runs/{self.run_name}/{self.time}.png')
+            # self.ax.savefig(f'runs/{self.run_name}/{self.time}.png')
+
+        # plt.clf()
+        # plt.close()
+
+        # if self.run_name:
+        #     plt.savefig(f'runs/{self.run_name}/{self.time}.png')
 
 
     def convert_action_to_gym(self, action):
@@ -202,7 +259,8 @@ class kMicroEnv(gym.Env):
         d_moderator_temp = (1 - self.f_f) * self.P_0 / self.mu_m * self.n_r + (self.K_fm * (self.Tf - self.Tm) - self.K_mc * (self.Tm - self.Tc)) / self.mu_m
         d_coolant_temp = self.K_mc * (self.Tm - self.Tc) / self.mu_c - 2 * self.M_dot * self.cp_c * (self.Tc - self.T_in) / self.mu_c
 
-        print(d_n_r, d_precursor_concentrations, d_xenon, d_iodine, d_fuel_temp, d_moderator_temp, d_coolant_temp)
+        # print('deltas')
+        # print(d_n_r, d_precursor_concentrations, d_xenon, d_iodine, d_fuel_temp, d_moderator_temp, d_coolant_temp)
 
         self.n_r += d_n_r * self.dt
         self.precursor_concentrations += d_precursor_concentrations  * self.dt
@@ -212,7 +270,8 @@ class kMicroEnv(gym.Env):
         self.Tm += d_moderator_temp  * self.dt
         self.Tc += d_coolant_temp  * self.dt
 
-
+        # print('state values:')
+        # print(self.n_r, self.precursor_concentrations, self.X, self.I, self.Tf, self.Tm, self.Tc)
 
 
 class MicroEnv(gym.Env):
@@ -393,7 +452,7 @@ def random_desired_profile(length=200, hardcoded=False):
 
 def main():
     # create a microreactor simulator and a PID controller
-    env = MicroEnv(render_mode="human")
+    env = kMicroEnv(render_mode="human", run_name='ktest')
     pid = PIDController()
 
     for _ in range(1):
@@ -403,8 +462,9 @@ def main():
         while not done:
             # gym_action = env.action_space.sample()
             gym_action = env.convert_action_to_gym(action)
+            print(f'action: {gym_action}')
             obs, _, terminated, truncated, _ = env.step(gym_action)
-            action = pid.update(env.time, obs["power"], env.desired_profile(env.time))
+            action = pid.update(env.time, obs["power"], env.desired_profile(env.time+1))
             if terminated or truncated:
                 done = True
 
