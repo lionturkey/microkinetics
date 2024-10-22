@@ -4,9 +4,24 @@ import matplotlib.pyplot as plt
 import stable_baselines3 as sb3
 from stable_baselines3.common.env_util import make_vec_env
 from pathlib import Path
+import imageio
 
 from point_kinetics import MicroReactorSimulator
 from controllers import PIDController
+
+
+def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
+    # Build GIF
+    png_list = list(png_folder.glob('*.png'))
+    num_list = sorted([int(png.stem) for png in png_list])
+    max_num = num_list[-1]
+    png_list = [(png_folder / f'{i}.png') for i in range(max_num + 1)]
+    with imageio.get_writer((png_folder / f'{run_name}.gif'), mode='I') as writer:
+        for filepath in png_list:
+            image = imageio.imread(filepath)
+            writer.append_data(image)
+            # delete png
+            filepath.unlink()
 
 
 class kMicroEnv(gym.Env):
