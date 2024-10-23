@@ -105,7 +105,7 @@ class MicroEnv(gym.Env):
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
             "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
-            # "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
         
@@ -134,9 +134,11 @@ class MicroEnv(gym.Env):
         self.Rho_d1 = 0
 
         current_power = self.n_r * 100
+        current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         observation = {
-            "desired_power": np.array([next_desired_power]),
+            "desired_power": np.array([current_desired_power]),
+            "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }
 
@@ -145,6 +147,7 @@ class MicroEnv(gym.Env):
         self.moderator_temp_history = [self.Tm]
         self.coolant_temp_history = [self.Tc]
         self.action_history = [0]
+        self.diff_history = [0]
 
         return observation, {}
 
@@ -166,10 +169,12 @@ class MicroEnv(gym.Env):
         self.time += 1
 
         current_power = self.n_r * 100
+        current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
 
         observation = {
-            "desired_power": np.array([next_desired_power]),
+            "desired_power": np.array([current_desired_power]),
+            "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }        
         reward, terminated = self.calc_reward(current_power, real_action)
@@ -184,6 +189,7 @@ class MicroEnv(gym.Env):
         self.moderator_temp_history.append(self.Tm)
         self.coolant_temp_history.append(self.Tc)
         self.action_history.append(real_action)
+        self.diff_history.append(current_desired_power - current_power)
         
         if self.render_mode == "human":
             self.render()
@@ -201,7 +207,7 @@ class MicroEnv(gym.Env):
         # Second component: Give a punishment if taking action while steady state
         prev_power = self.desired_profile(self.time - 1)
         if prev_power == desired_power and abs(action) > tolerance:
-            reward = -min(100, 1 / diff)
+            reward = -10 * min(1, 1 / diff)
         # Third component: give a punish outside bounds
         # acceptable_error = 10 * np.exp(-self.time / 50)
         acceptable_error = 10 / (self.time ** 0.3)
@@ -234,6 +240,11 @@ class MicroEnv(gym.Env):
         self.ax[2].set_xlabel('Time (s)')
         self.ax[2].set_ylabel('Action')
         self.ax[2].set_ylim(-1.1, 1.1)
+
+        self.ax[3].plot(self.diff_history)
+        self.ax[3].set_xlabel('Time (s)')
+        self.ax[3].set_ylabel('desired - actual power')
+        self.ax[3].set_ylim(-5, 5)
         
         plt.tight_layout()
         plt.pause(.001)
@@ -250,8 +261,8 @@ class MicroEnv(gym.Env):
         self.Rho_d1 += drum_rotation * self.Reactivity_per_degree
 
         # ODEs
-        rho = self.Rho_d1 + self.alpha_f * (self.Tf - self.Tf0) + self.alpha_c * (self.Tc - self.Tc0) + self.alpha_m * (self.Tm - self.Tm0) - self.Sig_x * (self.X - self.Xe0) / self.Sum_f
-
+        # rho = self.Rho_d1 + self.alpha_f * (self.Tf - self.Tf0) + self.alpha_m * (self.Tm - self.Tm0) - self.Sig_x * (self.X - self.Xe0) / self.Sum_f
+        rho = self.Rho_d1
 
         # Kinetics equations with six-delayed neutron groups        
         d_n_r = (rho - self.beta) * self.n_r / self.l + np.sum(self.betas * self.precursor_concentrations / self.l)
