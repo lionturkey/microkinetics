@@ -6,7 +6,6 @@ from stable_baselines3.common.env_util import make_vec_env
 from pathlib import Path
 import imageio
 
-from point_kinetics import MicroReactorSimulator
 from controllers import PIDController
 
 
