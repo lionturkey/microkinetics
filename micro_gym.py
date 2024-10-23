@@ -104,7 +104,7 @@ class MicroEnv(gym.Env):
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
-            # "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
@@ -137,7 +137,7 @@ class MicroEnv(gym.Env):
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         observation = {
-            # "desired_power": np.array([current_desired_power]),
+            "desired_power": np.array([current_desired_power]),
             "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }
@@ -173,7 +173,7 @@ class MicroEnv(gym.Env):
         next_desired_power = self.desired_profile(self.time + 1)
 
         observation = {
-            # "desired_power": np.array([current_desired_power]),
+            "desired_power": np.array([current_desired_power]),
             "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }        
@@ -209,8 +209,8 @@ class MicroEnv(gym.Env):
         if prev_power == desired_power and abs(action) > tolerance:
             reward = -10 * min(1, 1 / diff)
         # Third component: give a punish outside bounds
-        # acceptable_error = 10 * np.exp(-self.time / 50)
-        acceptable_error = 10 / (self.time ** 0.3)
+        acceptable_error = 10 * np.exp(-self.time / 50)
+        # acceptable_error = 10 / (self.time ** 0.3)
         terminated = False
         if power > 110 or diff > acceptable_error:
             reward = -1000
