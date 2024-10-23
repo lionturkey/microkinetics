@@ -18,6 +18,7 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
         for filepath in png_list[::2]:
             image = imageio.imread(filepath)
             writer.append_data(image)
+        for filepath in png_list:
             # delete png
             filepath.unlink()
 
@@ -204,13 +205,15 @@ class MicroEnv(gym.Env):
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
         reward = min(100, 1 / diff)
+
         # Second component: Give a punishment if taking action while steady state
         prev_power = self.desired_profile(self.time - 1)
         if prev_power == desired_power and abs(action) > tolerance:
             reward = -10 * min(1, 1 / diff)
+
         # Third component: give a punish outside bounds
-        acceptable_error = 10 * np.exp(-self.time / 50)
-        # acceptable_error = 10 / (self.time ** 0.3)
+        # acceptable_error = 10 * np.exp(-self.time / 50)
+        acceptable_error = 10 / (self.time ** 0.3)
         terminated = False
         if power > 110 or diff > acceptable_error:
             reward = -1000

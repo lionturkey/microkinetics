@@ -48,6 +48,7 @@ def train_model_loop(run_name: str,
 
 
 def load_model_loop(run_name: str, model_path: Path):
+    
     env = MicroEnv(run_name=run_name)
     ppo_controller = sb3.PPO.load(model_path)
     
@@ -109,7 +110,7 @@ def main(args):
             saved_models = list(run_folder.glob('*[0-9].zip'))
             if len(saved_models) > 0:
                 latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
-            load_model_loop(run_name, best_model)
+            load_model_loop(run_name, latest_model)
         case 'pid':
             pid_loop(run_name, run_folder)
         case _:
