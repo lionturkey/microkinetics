@@ -192,30 +192,23 @@ class MicroEnv(gym.Env):
     
 
     def calc_reward(self, power, action):
-        tolerance = 0.05
         """Returns reward and whether the episode is terminated."""
+        tolerance = 0.05
         # First component: give reward to stay in the correct range
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
         reward = min(100, 1 / diff)
-
-        # # Second component: Give a reward if steady state
-        # if self.time < 2:
-        #     prev_power = 100
-        # else:
-        #     prev_power = self.desired_profile(self.time -2)
-
-        # if prev_power == desired_power and abs(action) <= tolerance:
-        #     reward = min(100, 1 / diff)
-        
+        # Second component: Give a punishment if taking action while steady state
+        prev_power = self.desired_profile(self.time - 1)
+        if prev_power == desired_power and abs(action) > tolerance:
+            reward = -min(100, 1 / diff)
         # Third component: give a punish outside bounds
         # acceptable_error = 10 * np.exp(-self.time / 50)
-        acceptable_error = 10 / (self.time**.3)
+        acceptable_error = 10 / (self.time ** 0.3)
         terminated = False
         if power > 110 or diff > acceptable_error:
             reward = -1000
             terminated = True
-        
         return reward, terminated
 
 
@@ -325,6 +318,8 @@ def random_desired_profile(length=200, hardcoded=False):
         values = hardcoded_values[0]
 
     def desired_profile(t):
+        if t < 0:
+            return 100
         for i, cutoff in enumerate(cutoffs):
             if abs(t - cutoff) < 8: # WARNING: magic number ramp window of 10
                 # use point slope form: y = m(x-x0) + y0 at cutoff
