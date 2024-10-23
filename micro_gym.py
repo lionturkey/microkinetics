@@ -29,37 +29,43 @@ class MicroEnv(gym.Env):
     }
 
     # Reactor parameters
-    Sig_x = 2.65e-22
-    yi = 0.061
-    yx = 0.002
-    lamda_x = 2.09e-5
-    lamda_I = 2.87e-5
-    Sum_f = 0.3358
-    l = 1.68e-3
+    Sig_x = 2.65e-22  # xenon micro xsec
+    yi = 0.061  # yield iodine
+    yx = 0.002  # yield xenon
+    lamda_x = 2.09e-5  # decay of xenon
+    lamda_I = 2.87e-5  # decay of iodine
+    Sum_f = 0.3358  # macro xsec fission
+    l = 1.68e-3  # neutron lifetime
     beta = 0.0048
     betas = np.array([1.42481E-04, 9.24281E-04, 7.79956E-04, 2.06583E-03, 6.71175E-04, 2.17806E-04])
     lambdas = np.array([1.272E-02, 3.174E-02, 1.160E-01, 3.110E-01, 1.400E+00, 3.870E+00])
 
-    cp_f = 977
-    cp_m = 1697
-    cp_c = 5188.6
-    M_f = 2002
-    M_m = 11573
-    M_c = 500
-    mu_f = M_f * cp_f
+
+    # table 2 in 
+    cp_f = 977  # specific heat of fuel
+    cp_m = 1697  # specific heat of moderator
+    cp_c = 5188.6  # specific heat of coolant
+    M_f = 2002  # mass of fuel
+    M_m = 11573  # mass of moderator
+    M_c = 500  # mass of coolant
+    mu_f = M_f * cp_f  
     mu_m = M_m * cp_m
     mu_c = M_c * cp_c
-    f_f = 0.96
+    f_f = 0.96  # q in paper
     P_0 = 22e6
     # Tf0 = 1105 # sooyoung's code
     # Tf0 = 900 # kamal's code
+    Tf0 = 832.4  # MPACT paper
     Tf0 = 895
     # Tm0 = 1087 # sooyoung's code
     # Tm0 = 898 # kamal's code
+    # Tm0 = 820 # MPACT paper
     Tm0 = 893
-    T_in = 864
-    T_out = 1106
-    # Tc0 = (T_in + T_out) / 2 # sooyoung's code
+    # T_in = 864  # sooyoung's code
+    T_in = 590   # MPACT paper
+    # T_out = 1106  # sooyoung's code
+    T_out = 849.1  # MPACT paper
+    # Tc0 = (T_in + T_out) / 2
     # Tc0 = 888 # kamal's code
     Tc0 = 888
     K_fm = f_f * P_0 / (Tf0 - Tm0)
@@ -86,13 +92,14 @@ class MicroEnv(gym.Env):
     Rho_d1 = Rho_d0 + u0 * Reactivity_per_degree
 
     def __init__(self, dt=0.1, episode_length=200,
-                 render_mode=None, run_name=None):
+                 render_mode=None, run_name=None, debug=False):
         self.dt = dt
         if render_mode not in self.metadata["render_modes"] + [None]:
             raise ValueError(f"Invalid render mode: {render_mode}")
         self.render_mode = render_mode
         self.episode_length = episode_length
         self.run_name = run_name
+        self.debug = debug
 
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
@@ -154,7 +161,7 @@ class MicroEnv(gym.Env):
         real_action = self.convert_action(action)
         num_steps = int(1 / self.dt)
         for _ in range(num_steps):
-            self.reactor_dae(real_action / num_steps)
+            self.reactor_dae(real_action / num_steps, debug=self.debug)
         self.time += 1
 
         current_power = self.n_r * 100
@@ -245,7 +252,7 @@ class MicroEnv(gym.Env):
         return action * 2
 
 
-    def reactor_dae(self, drum_rotation):
+    def reactor_dae(self, drum_rotation, debug=False):
         self.Rho_d1 += drum_rotation * self.Reactivity_per_degree
 
         # ODEs
@@ -264,6 +271,17 @@ class MicroEnv(gym.Env):
         d_fuel_temp = self.f_f * self.P_0 / self.mu_f * self.n_r - self.K_fm / self.mu_f * (self.Tf - self.Tc)
         d_moderator_temp = (1 - self.f_f) * self.P_0 / self.mu_m * self.n_r + (self.K_fm * (self.Tf - self.Tm) - self.K_mc * (self.Tm - self.Tc)) / self.mu_m
         d_coolant_temp = self.K_mc * (self.Tm - self.Tc) / self.mu_c - 2 * self.M_dot * self.cp_c * (self.Tc - self.T_in) / self.mu_c
+
+
+        if debug:
+            print('##########################')
+            print('######next dae iter#######')
+            print('##########################')
+            print(f'd_n_r {d_n_r}')
+            print(f'd_precursor_concentrations {d_precursor_concentrations}')
+            print(f'd_fuel_temp {d_fuel_temp}')
+            print(f'd_moderator_temp {d_moderator_temp}')
+            print(f'd_coolant_temp {d_coolant_temp}')
 
         self.n_r += d_n_r * self.dt
         self.precursor_concentrations += d_precursor_concentrations  * self.dt
@@ -320,7 +338,7 @@ def random_desired_profile(length=200, hardcoded=False):
 
 def main():
     # create a microreactor simulator and a PID controller
-    env = kMicroEnv(render_mode="human", run_name='ktest')
+    env = MicroEnv(render_mode="human", run_name='ktest', debug=True)
     pid = PIDController()
 
     for _ in range(1):
@@ -332,6 +350,7 @@ def main():
             gym_action = env.convert_action_to_gym(action)
             print(f'action: {gym_action}')
             obs, _, terminated, truncated, _ = env.step(gym_action)
+            print(f'obs: {obs}')
             action = pid.update(env.time, obs["power"], env.desired_profile(env.time+1))
             if terminated or truncated:
                 done = True
