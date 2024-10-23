@@ -126,7 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('run_name', type=str, help='Name of the run')
     parser.add_argument('--run_type', type=str, default='train',
                         help='Must be train, load, or pid')
-    parser.add_argument('--num_timesteps', type=int, default=1000000,)
+    parser.add_argument('--num_timesteps', type=int, default=500000,)
     parser.add_argument('--num_envs', type=int, default=6,
                         help='Number of parallel environments during training')
     parser.add_argument('--nsteps', type=int, default=2048,

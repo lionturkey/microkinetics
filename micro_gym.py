@@ -15,7 +15,7 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
     num_list = sorted([int(png.stem) for png in png_list])
     png_list = [(png_folder / f'{i}.png') for i in num_list]
     with imageio.get_writer((png_folder / f'{run_name}.gif'), mode='I') as writer:
-        for filepath in png_list:
+        for filepath in png_list[::2]:
             image = imageio.imread(filepath)
             writer.append_data(image)
             # delete png
@@ -104,7 +104,7 @@ class MicroEnv(gym.Env):
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
-            "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            # "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
@@ -137,7 +137,7 @@ class MicroEnv(gym.Env):
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         observation = {
-            "desired_power": np.array([current_desired_power]),
+            # "desired_power": np.array([current_desired_power]),
             "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }
@@ -173,7 +173,7 @@ class MicroEnv(gym.Env):
         next_desired_power = self.desired_profile(self.time + 1)
 
         observation = {
-            "desired_power": np.array([current_desired_power]),
+            # "desired_power": np.array([current_desired_power]),
             "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }        
