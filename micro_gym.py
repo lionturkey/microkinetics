@@ -55,16 +55,16 @@ class MicroEnv(gym.Env):
     P_0 = 22e6
     # Tf0 = 1105 # sooyoung's code
     # Tf0 = 900 # kamal's code
-    Tf0 = 832.4  # MPACT paper
+    # Tf0 = 832.4  # MPACT paper
     Tf0 = 895
     # Tm0 = 1087 # sooyoung's code
     # Tm0 = 898 # kamal's code
     # Tm0 = 820 # MPACT paper
     Tm0 = 893
-    # T_in = 864  # sooyoung's code
-    T_in = 590   # MPACT paper
-    # T_out = 1106  # sooyoung's code
-    T_out = 849.1  # MPACT paper
+    T_in = 864  # sooyoung's code
+    # T_in = 590   # MPACT paper
+    T_out = 1106  # sooyoung's code
+    # T_out = 849.1  # MPACT paper
     # Tc0 = (T_in + T_out) / 2
     # Tc0 = 888 # kamal's code
     Tc0 = 888
@@ -105,6 +105,7 @@ class MicroEnv(gym.Env):
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
             "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            # "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
         
@@ -282,6 +283,7 @@ class MicroEnv(gym.Env):
             print(f'd_fuel_temp {d_fuel_temp}')
             print(f'd_moderator_temp {d_moderator_temp}')
             print(f'd_coolant_temp {d_coolant_temp}')
+            print(f'power {self.power_history[-1]}')
 
         self.n_r += d_n_r * self.dt
         self.precursor_concentrations += d_precursor_concentrations  * self.dt
