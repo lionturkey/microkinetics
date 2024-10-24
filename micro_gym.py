@@ -57,20 +57,23 @@ class MicroEnv(gym.Env):
     # Tf0 = 1105 # sooyoung's code
     # Tf0 = 900 # kamal's code
     # Tf0 = 832.4  # MPACT paper
-    Tf0 = 895
+    Tf0 = 832.4
     # Tm0 = 1087 # sooyoung's code
     # Tm0 = 898 # kamal's code
     # Tm0 = 820 # MPACT paper
-    Tm0 = 893
-    T_in = 864  # sooyoung's code
+    Tm0 = 830.22
+    # T_in = 864  # sooyoung's code
     # T_in = 590   # MPACT paper
+    T_in = 795.47
     T_out = 1106  # sooyoung's code
     # T_out = 849.1  # MPACT paper
     # Tc0 = (T_in + T_out) / 2
     # Tc0 = 888 # kamal's code
-    Tc0 = 888
-    K_fm = f_f * P_0 / (Tf0 - Tm0)
-    K_mc = P_0 / (Tm0 - Tc0)
+    Tc0 = 814.35
+    # K_fm = f_f * P_0 / (Tf0 - Tm0)
+    # K_mc = P_0 / (Tm0 - Tc0)
+    K_fm = 1.17e6  # W/K
+    K_mc = 2.16e5  # W/K
     M_dot = 1.75E+01
     alpha_f = -2.875e-5
     alpha_m = -3.696e-5
@@ -133,6 +136,7 @@ class MicroEnv(gym.Env):
         self.Tm = self.Tm0
         self.Tc = self.Tc0
         self.Rho_d1 = 0
+        self.rho = 0
 
         current_power = self.n_r * 100
         current_desired_power = self.desired_profile(self.time)
@@ -149,6 +153,7 @@ class MicroEnv(gym.Env):
         self.coolant_temp_history = [self.Tc]
         self.action_history = [0]
         self.diff_history = [0]
+        self.rho_diff_history = [0]
 
         return observation, {}
 
@@ -191,6 +196,7 @@ class MicroEnv(gym.Env):
         self.coolant_temp_history.append(self.Tc)
         self.action_history.append(real_action)
         self.diff_history.append(current_desired_power - current_power)
+        self.rho_diff_history.append(self.Rho_d1 - self.rho)
         
         if self.render_mode == "human":
             self.render()
@@ -213,7 +219,8 @@ class MicroEnv(gym.Env):
 
         # Third component: give a punish outside bounds
         # acceptable_error = 10 * np.exp(-self.time / 50)
-        acceptable_error = 10 / (self.time ** 0.3)
+        # acceptable_error = 10 / (self.time ** 0.3)
+        acceptable_error = 2
         terminated = False
         if power > 110 or diff > acceptable_error:
             reward = -1000
@@ -248,6 +255,11 @@ class MicroEnv(gym.Env):
         self.ax[3].set_xlabel('Time (s)')
         self.ax[3].set_ylabel('desired - actual power')
         self.ax[3].set_ylim(-5, 5)
+
+        self.ax[4].plot(self.rho_diff_history)
+        self.ax[4].set_xlabel('Time (s)')
+        self.ax[4].set_ylabel('rho_d1 - rho')
+        self.ax[4].set_ylim(-5, 5)
         
         plt.tight_layout()
         plt.pause(.001)
@@ -264,16 +276,18 @@ class MicroEnv(gym.Env):
         self.Rho_d1 += drum_rotation * self.Reactivity_per_degree
 
         # ODEs
-        # rho = self.Rho_d1 + self.alpha_f * (self.Tf - self.Tf0) + self.alpha_m * (self.Tm - self.Tm0) - self.Sig_x * (self.X - self.Xe0) / self.Sum_f
-        rho = self.Rho_d1
+        rho = self.Rho_d1 + self.alpha_f * (self.Tf - self.Tf0) + self.alpha_m * (self.Tm - self.Tm0)
+        self.rho = rho
+        # - self.Sig_x * (self.X - self.Xe0) / self.Sum_f
+        # rho = self.Rho_d1
 
         # Kinetics equations with six-delayed neutron groups        
         d_n_r = (rho - self.beta) * self.n_r / self.l + np.sum(self.betas * self.precursor_concentrations / self.l)
         d_precursor_concentrations = self.lambdas * self.n_r - self.lambdas * self.precursor_concentrations
         
         # Xenon and Iodine dynamics
-        d_xenon = self.yx * self.Sum_f * self.Pi + self.lamda_I * self.I - self.Sig_x * self.X * self.Pi - self.lamda_x * self.X
-        d_iodine = self.yi * self.Sum_f * self.Pi - self.lamda_I * self.I
+        # d_xenon = self.yx * self.Sum_f * self.Pi + self.lamda_I * self.I - self.Sig_x * self.X * self.Pi - self.lamda_x * self.X
+        # d_iodine = self.yi * self.Sum_f * self.Pi - self.lamda_I * self.I
 
         # Thermal–hydraulics model of the reactor core
         d_fuel_temp = self.f_f * self.P_0 / self.mu_f * self.n_r - self.K_fm / self.mu_f * (self.Tf - self.Tc)
@@ -294,8 +308,8 @@ class MicroEnv(gym.Env):
 
         self.n_r += d_n_r * self.dt
         self.precursor_concentrations += d_precursor_concentrations  * self.dt
-        self.X += d_xenon  * self.dt
-        self.I += d_iodine * self.dt
+        # self.X += d_xenon  * self.dt
+        # self.I += d_iodine * self.dt
         self.Tf += d_fuel_temp * self.dt
         self.Tm += d_moderator_temp  * self.dt
         self.Tc += d_coolant_temp  * self.dt
