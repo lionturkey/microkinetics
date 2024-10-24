@@ -1,6 +1,5 @@
 archive
 *.pyc
-trash.py
 *.gif
 *.png
 *.zip
