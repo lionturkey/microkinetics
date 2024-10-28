@@ -40,7 +40,7 @@ def train_model_loop(run_name: str,
                                      best_model_save_path=f'./runs/{run_name}',
                                      log_path=f'./runs/{run_name}/logs/',
                                      deterministic=True,
-                                     eval_freq=1000)
+                                     eval_freq=4000)
 
     model.learn(total_timesteps=num_timesteps, callback=eval_callback,
                 reset_num_timesteps=False)
@@ -110,7 +110,7 @@ def main(args):
             saved_models = list(run_folder.glob('*[0-9].zip'))
             if len(saved_models) > 0:
                 latest_model = sorted(saved_models, key=lambda x: x.stat().st_mtime)[-1]
-            load_model_loop(run_name, latest_model)
+            load_model_loop(run_name, best_model)
         case 'pid':
             pid_loop(run_name, run_folder)
         case _:

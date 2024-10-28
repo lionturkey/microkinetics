@@ -5,6 +5,7 @@ import stable_baselines3 as sb3
 from stable_baselines3.common.env_util import make_vec_env
 from pathlib import Path
 import imageio
+from collections import deque
 
 from controllers import PIDController
 
@@ -108,7 +109,8 @@ class MicroEnv(gym.Env):
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
-            "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            # "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "last_action": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
@@ -142,7 +144,8 @@ class MicroEnv(gym.Env):
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         observation = {
-            "desired_power": np.array([current_desired_power]),
+            # "desired_power": np.array([current_desired_power]),
+            "last_action": np.array([0]),
             "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }
@@ -177,9 +180,11 @@ class MicroEnv(gym.Env):
         current_power = self.n_r * 100
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
+        this_action = self.convert_action_to_gym(real_action)
 
         observation = {
-            "desired_power": np.array([current_desired_power]),
+            # "desired_power": np.array([current_desired_power]),
+            "last_action": np.array([this_action]),
             "next_desired_power": np.array([next_desired_power]),
             "power": np.array([current_power]),
         }        
@@ -206,23 +211,31 @@ class MicroEnv(gym.Env):
 
     def calc_reward(self, power, action):
         """Returns reward and whether the episode is terminated."""
-        tolerance = 0.05
         # First component: give reward to stay in the correct range
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
-        reward = min(100, 1 / diff)
+        reward = np.ceil(self.time / 25)
+        reward += min(100, 1 / diff)
 
-        # Second component: Give a punishment if taking action while steady state
+        # Second component: Give a punishment if taking oscillating actions
+        # sign_changes = np.diff(np.sign(self.action_history)) != 0
+        # action_signs = np.sign(self.action_history)
+        # sign_changes = (np.diff(action_signs) != 0) * 1  # 1 if sign change, 0 otherwise
+        # num_sign_changes = np.sum(sign_changes[-10:])  # only consider last 10 actions
+        # reward -= 2 ** num_sign_changes
+
+        action_diff = abs(action - self.action_history[-1])
+        tolerance = 0.05
         prev_power = self.desired_profile(self.time - 1)
-        if prev_power == desired_power and abs(action) > tolerance:
-            reward = -10 * min(1, 1 / diff)
+        if prev_power == desired_power and action_diff < tolerance:
+            reward += 20
 
         # Third component: give a punish outside bounds
         # acceptable_error = 10 * np.exp(-self.time / 50)
         # acceptable_error = 10 / (self.time ** 0.3)
         acceptable_error = 2
         terminated = False
-        if power > 110 or diff > acceptable_error:
+        if diff > acceptable_error:
             reward = -1000
             terminated = True
         return reward, terminated
@@ -232,12 +245,16 @@ class MicroEnv(gym.Env):
         self.ax[0].cla()
         self.ax[1].cla()
         self.ax[2].cla()
+        self.ax[3].cla()
+        self.ax[4].cla()
         
         self.ax[0].plot(self.power_history, label='Actual')
-        self.ax[0].plot([self.desired_profile(t) for t in range(len(self.power_history))], label='Desired')
+        self.ax[0].plot([self.desired_profile(t) for t in range(self.episode_length)], label='Desired', alpha=.5)
         self.ax[0].set_xlabel('Time (s)')
         self.ax[0].set_ylabel('Power')
         self.ax[0].legend()
+        self.ax[0].set_ylim(30, 110)
+        self.ax[0].set_xlim(0, self.episode_length)
 
         self.ax[1].plot(self.fuel_temp_history, label='Fuel')
         self.ax[1].plot(self.moderator_temp_history, label='Moderator')
@@ -245,22 +262,28 @@ class MicroEnv(gym.Env):
         self.ax[1].set_xlabel('Time (s)')
         self.ax[1].set_ylabel('Temperature')
         self.ax[1].legend()
+        self.ax[1].set_xlim(0, self.episode_length)
 
         self.ax[2].plot(self.action_history)
+        self.ax[2].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[2].set_xlabel('Time (s)')
         self.ax[2].set_ylabel('Action')
-        self.ax[2].set_ylim(-1.1, 1.1)
+        self.ax[2].set_ylim(-0.6, 0.6)
+        self.ax[2].set_xlim(0, self.episode_length)
 
         self.ax[3].plot(self.diff_history)
+        self.ax[3].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[3].set_xlabel('Time (s)')
         self.ax[3].set_ylabel('desired - actual power')
         self.ax[3].set_ylim(-5, 5)
+        self.ax[3].set_xlim(0, self.episode_length)
 
         self.ax[4].plot(self.rho_diff_history)
         self.ax[4].set_xlabel('Time (s)')
         self.ax[4].set_ylabel('rho_d1 - rho')
         self.ax[4].set_ylim(-5, 5)
-        
+        self.ax[4].set_xlim(0, self.episode_length)
+
         plt.tight_layout()
         plt.pause(.001)
         if self.run_name:
@@ -324,8 +347,9 @@ hardcoded_cutoffs = [
 ]
 
 hardcoded_values = [
-    [100, 80, 70, 40, 80, 40],
-    # [100, 80, 70, 40, 60, 40],
+    # [100, 80, 70, 40, 80, 40],
+    # [100, 80, 70, 40, 70, 40],
+    [100, 80, 70, 40, 60, 90],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
