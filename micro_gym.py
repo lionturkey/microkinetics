@@ -228,52 +228,25 @@ class MicroEnv(gym.Env):
     def calc_reward(self, power, action):
         """Returns reward and whether the episode is terminated."""
         # First component: give reward to stay in the correct range
-        # desired_power = self.desired_profile(self.time)
-        # diff = abs(power - desired_power)
-        # reward = np.ceil(self.time / 25)
-        # reward += min(100, 1 / diff)
-
-        # Second component: Give a punishment if taking oscillating actions
-        # sign_changes = np.diff(np.sign(self.action_history)) != 0
-        # action_signs = np.sign(self.action_history)
-        # sign_changes = (np.diff(action_signs) != 0) * 1  # 1 if sign change, 0 otherwise
-        # num_sign_changes = np.sum(sign_changes[-10:])  # only consider last 10 actions
-        # reward -= 2 ** num_sign_changes
-
-        # reward = np.ceil(self.time / 25) * .05
-
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
-        # reward = .05 - diff / 4
-        # reward = 0.05 - (diff**3 / 4)
-        reward = 0.1 - (.8 + diff)**2 / 20
-        # power_tolerance = 0.2
-        # action_tolerance = 0.02
+        # reward = np.ceil(self.time / 25)
+        # reward = 2 + min(100, 1 / diff)
+        reward = 5
+        reward += min(5, 1/diff) - diff**2 / 2
+
+        # Second component: Reward null actions at steady state
+        diff = abs(power - desired_power)
         prev_power = self.desired_profile(self.time - 1)
-        # action_diff = abs(action - self.action_history[-1])
-        # if prev_power == desired_power and diff < power_tolerance and action == 0:
-        #     reward += .05
-        #     # print('got steady state reward!')
-        # elif action_diff < action_tolerance:
-        #     reward += .03
-        # elif (prev_power == desired_power and diff < power_tolerance
-        #       and not (action_diff < action_tolerance or action == 0)):
-        #     reward -= .01
-        # elif (prev_power != desired_power or diff > power_tolerance) and action != 0:
-            # reward += .02
-
-
-        reward = min(5, 1/diff - 1.5)
+        action_diff = abs(action - self.action_history[-1])
+        tolerance = 0.05
         if action == 0 and prev_power == desired_power:
-            reward += 1
+            reward += 3
+        if action_diff < tolerance:
+            reward += 3
 
-        # prev_power = self.desired_profile(self.time - 1)
-        # if prev_power == desired_power and action_diff < tolerance:
-        #     reward += 20
-
-        # Third component: give a punish outside bounds
-        # acceptable_error = 10 * np.exp(-self.time / 50)
-        # acceptable_error = 10 / (self.time ** 0.3)
+        # Third component: Terminate when the reactor is too far off
+        # Termination
         acceptable_error = 2
         terminated = False
         if diff > acceptable_error:
@@ -380,9 +353,9 @@ class MicroEnv(gym.Env):
 
 
 hardcoded_cutoffs = [
-    # [10, 50, 70, 150, 165],
-    [30, 45, 77, 128, 160],
-    # [5, 53, 72, 130, 187],
+    [10, 50, 70, 128, 165],
+    # [30, 45, 77, 128, 160],
+    # [5, 53, 72, 130, 160],
     # [10, 50, 70, 150, 200],
     # [10, 50, 70, 150, 200],
 ]

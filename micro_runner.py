@@ -32,7 +32,11 @@ def train_model_loop(run_name: str,
     else:
         model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
                         n_steps=n_steps,
-                        tensorboard_log=tensorboard_dir)
+                        tensorboard_log=tensorboard_dir,
+                        )
+        # model = sb3.SAC('MultiInputPolicy', vec_env, verbose=1,
+        #                 tensorboard_log=tensorboard_dir,
+        #                 )
 
     eval_env = MicroEnv()
     eval_env = Monitor(eval_env, filename=f'./runs/{run_name}/logs/eval')
