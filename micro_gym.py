@@ -107,13 +107,12 @@ class MicroEnv(gym.Env):
         self.debug = debug
 
 
-        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
-            "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            # "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "last_action": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
-            "last_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
         
         if run_name is not None:
@@ -141,15 +140,16 @@ class MicroEnv(gym.Env):
         self.Rho_d1 = 0
         self.rho = 0
 
+        self.drum = 77.8
+
         current_power = self.n_r * 100
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         observation = {
-            "desired_power": np.array([current_desired_power]),
+            # "desired_power": np.array([current_desired_power/100]),
             "last_action": np.array([0]),
-            "next_desired_power": np.array([next_desired_power]),
+            "next_desired_power": np.array([next_desired_power/100]),
             "power": np.array([current_power/100]),
-            "last_power": np.array([current_power/100]),
         }
 
         self.power_history = [current_power]
@@ -159,6 +159,7 @@ class MicroEnv(gym.Env):
         self.action_history = [0]
         self.diff_history = [0]
         self.rho_diff_history = [0]
+        self.drum_history = [self.drum]
 
         return observation, {}
 
@@ -166,25 +167,14 @@ class MicroEnv(gym.Env):
     def convert_action(self, action):
         """Convert from the -1 to 1 box space to -0.5 to 0.5"""
         if isinstance(action, float):
-            return action / 2
-        return action.item() / 2
+            return action #/ 2
+        return action.item() #/ 2
 
 
     def step(self, action):
         if self.time >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
-        
-        real_action, action_mask = action
-        real_action = self.convert_action(real_action)
-
-        if action_mask > 0:
-            real_action = 0
-
-        # # collapse near zero actions to zero
-        # tolerance = 0.05
-        # if abs(real_action) < tolerance:
-        #     real_action = 0
-
+        real_action = self.convert_action(action)
         num_steps = int(1 / self.dt)
         for _ in range(num_steps):
             self.reactor_dae(real_action / num_steps, debug=self.debug)
@@ -194,15 +184,13 @@ class MicroEnv(gym.Env):
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         this_action = self.convert_action_to_gym(real_action)
-
-        last_power = self.power_history[-1]
+        self.drum += this_action
 
         observation = {
-            "desired_power": np.array([current_desired_power]),
+            # "desired_power": np.array([current_desired_power/100]),
             "last_action": np.array([this_action]),
-            "next_desired_power": np.array([next_desired_power]),
+            "next_desired_power": np.array([next_desired_power/100]),
             "power": np.array([current_power/100]),
-            "last_power": np.array([last_power/100]),
         }        
         reward, terminated = self.calc_reward(current_power, real_action)
         truncated = False
@@ -217,7 +205,8 @@ class MicroEnv(gym.Env):
         self.coolant_temp_history.append(self.Tc)
         self.action_history.append(real_action)
         self.diff_history.append(current_desired_power - current_power)
-        self.rho_diff_history.append((self.rho-self.Rho_d1)*1e5)  # convert to pcm
+        self.rho_diff_history.append(self.Rho_d1 - self.rho)
+        self.drum_history.append(self.drum)
         
         if self.render_mode == "human":
             self.render()
@@ -230,24 +219,27 @@ class MicroEnv(gym.Env):
         # First component: give reward to stay in the correct range
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
-        # reward = np.ceil(self.time / 25)
-        # reward = 2 + min(100, 1 / diff)
-        reward = 5
-        reward += min(5, 1/diff) - diff**2 / 2
+        # reward = 5*np.ceil(self.time / 25)
+        reward = 1
+        # reward += min(100, 1 / diff)
+        reward += min(20, 1 / diff)
 
-        # Second component: Reward null actions at steady state
-        diff = abs(power - desired_power)
-        prev_power = self.desired_profile(self.time - 1)
-        action_diff = abs(action - self.action_history[-1])
-        tolerance = 0.05
-        if action == 0 and prev_power == desired_power:
-            reward += 3
-        if action_diff < tolerance:
-            reward += 3
+        # prev_power = self.desired_profile(self.time - 1)
+        # if desired_power == prev_power and :
+        #     reward -= .1 * action**2
 
-        # Third component: Terminate when the reactor is too far off
-        # Termination
-        acceptable_error = 2
+        # if abs(action - self.action_history[-1]) < 0.05:
+        #     reward += 4
+
+
+        # action_diff = abs(action - self.action_history[-1])
+        # tolerance = 0.05
+        # prev_power = self.desired_profile(self.time - 1)
+        # if prev_power == desired_power and action_diff < tolerance:
+        #     reward += 20
+
+        # Third component: give a punish outside bounds
+        acceptable_error = 5
         terminated = False
         if diff > acceptable_error:
             reward = -100
@@ -282,7 +274,7 @@ class MicroEnv(gym.Env):
         self.ax[2].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[2].set_xlabel('Time (s)')
         self.ax[2].set_ylabel('Action')
-        self.ax[2].set_ylim(-0.6, 0.6)
+        self.ax[2].set_ylim(-1.1, 1.1)
         self.ax[2].set_xlim(0, self.episode_length)
 
         self.ax[3].plot(self.diff_history)
@@ -292,10 +284,15 @@ class MicroEnv(gym.Env):
         self.ax[3].set_ylim(-5, 5)
         self.ax[3].set_xlim(0, self.episode_length)
 
-        self.ax[4].plot(self.rho_diff_history)
+        # self.ax[4].plot(self.rho_diff_history)
+        # self.ax[4].set_xlabel('Time (s)')
+        # self.ax[4].set_ylabel('rho_d1 - rho')
+        # self.ax[4].set_ylim(-5, 5)
+        # self.ax[4].set_xlim(0, self.episode_length)
+
+        self.ax[4].plot(self.drum_history)
         self.ax[4].set_xlabel('Time (s)')
-        self.ax[4].set_ylabel('rho_temp (pcm)')
-        self.ax[4].set_ylim(-150, 150)
+        self.ax[4].set_ylabel('drum rotation')
         self.ax[4].set_xlim(0, self.episode_length)
 
         plt.tight_layout()
@@ -353,9 +350,9 @@ class MicroEnv(gym.Env):
 
 
 hardcoded_cutoffs = [
-    [10, 50, 70, 128, 165],
-    # [30, 45, 77, 128, 160],
-    # [5, 53, 72, 130, 160],
+    # [10, 50, 80, 130, 165],
+    [30, 45, 77, 128, 160],
+    # [5, 53, 72, 130, 187],
     # [10, 50, 70, 150, 200],
     # [10, 50, 70, 150, 200],
 ]
@@ -363,48 +360,39 @@ hardcoded_cutoffs = [
 hardcoded_values = [
     # [100, 80, 70, 40, 80, 40],
     # [100, 80, 70, 40, 70, 40],
-    [100, 80, 70, 40, 60, 90],
+    [100, 80, 70, 50, 65, 90],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
 ]
 
-def random_desired_profile(length=200, hardcoded=False, tolerance=30):
-    """Generate a random desired power profile."""
+def random_desired_profile(length=200, hardcoded=False):
     num_cutoffs = np.random.randint(3, 7)
-    # print(f'num_cutoffs for linear ramps {num_cutoffs}')
-    cutoffs = [int(x) for x in np.linspace(length / num_cutoffs, length, num_cutoffs, endpoint=False)]
-    cutoffs += np.random.randint(-length // num_cutoffs // 4, length // num_cutoffs // 4, size=num_cutoffs)
+    cutoffs = [int(x) for x in np.linspace(length/num_cutoffs, length, num_cutoffs, endpoint=False)]
+    cutoffs += np.random.randint(-length//num_cutoffs//4, length//num_cutoffs//4, size=num_cutoffs)
     np.clip(cutoffs, 0, length, out=cutoffs)
     cutoffs.sort()
-    # print(f'linear cutoffs {cutoffs}')
+    values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
 
-    def generate_values(tolerance=tolerance):
-        """Generate values until no adjacent pair has a difference > 30."""
-        while True:
-            values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
-            if all(abs(values[i+1] - values[i]) <= tolerance for i in range(len(values) - 1)):
-                return values
-    values = generate_values()
-
+    # # WARNING: hardcoded values
     if hardcoded:
         cutoffs = np.array(hardcoded_cutoffs[0])
         values = hardcoded_values[0]
 
     def desired_profile(t):
-        """Interpolate desired power based on time"""
         if t < 0:
             return 100
         for i, cutoff in enumerate(cutoffs):
-            if abs(t - cutoff) < 8:  # Ramp window of 8
-                # Use point-slope form: y = m(x - x0) + y0 at cutoff
-                power = (((values[i + 1] - values[i]) / 16) *
-                         (t - cutoff) + (values[i] + values[i + 1]) / 2)
+            if abs(t - cutoff) < 8: # WARNING: magic number ramp window of 10
+                # use point slope form: y = m(x-x0) + y0 at cutoff
+                power = (((values[i+1] - values[i]) / 16) *
+                         (t - cutoff) + (values[i] + values[i+1]) / 2)
                 return power
             elif t < cutoff:
                 return values[i]
         return values[-1]
+
     return desired_profile
 
 
