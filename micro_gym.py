@@ -201,7 +201,7 @@ class MicroEnv(gym.Env):
         self.coolant_temp_history.append(self.Tc)
         self.action_history.append(real_action)
         self.diff_history.append(current_desired_power - current_power)
-        self.rho_diff_history.append(self.Rho_d1 - self.rho)
+        self.rho_diff_history.append((self.rho-self.Rho_d1)*1e5)  # convert to pcm
         
         if self.render_mode == "human":
             self.render()
@@ -280,8 +280,8 @@ class MicroEnv(gym.Env):
 
         self.ax[4].plot(self.rho_diff_history)
         self.ax[4].set_xlabel('Time (s)')
-        self.ax[4].set_ylabel('rho_d1 - rho')
-        self.ax[4].set_ylim(-5, 5)
+        self.ax[4].set_ylabel('rho_temp (pcm)')
+        self.ax[4].set_ylim(-150, 150)
         self.ax[4].set_xlim(0, self.episode_length)
 
         plt.tight_layout()
@@ -356,32 +356,41 @@ hardcoded_values = [
     # [100, 40, 70, 40, 80, 40],
 ]
 
-def random_desired_profile(length=200, hardcoded=False):
+def random_desired_profile(length=200, hardcoded=False, tolerance=30):
+    """Generate a random desired power profile."""
     num_cutoffs = np.random.randint(3, 7)
-    cutoffs = [int(x) for x in np.linspace(length/num_cutoffs, length, num_cutoffs, endpoint=False)]
-    cutoffs += np.random.randint(-length//num_cutoffs//4, length//num_cutoffs//4, size=num_cutoffs)
+    print(f'num_cutoffs for linear ramps {num_cutoffs}')
+    cutoffs = [int(x) for x in np.linspace(length / num_cutoffs, length, num_cutoffs, endpoint=False)]
+    cutoffs += np.random.randint(-length // num_cutoffs // 4, length // num_cutoffs // 4, size=num_cutoffs)
     np.clip(cutoffs, 0, length, out=cutoffs)
     cutoffs.sort()
-    values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
+    print(f'linear cutoffs {cutoffs}')
 
-    # # WARNING: hardcoded values
+    def generate_values(tolerance=tolerance):
+        """Generate values until no adjacent pair has a difference > 30."""
+        while True:
+            values = [100] + [100 * round(x, 1) for x in np.random.uniform(0.4, 1, size=num_cutoffs)]
+            if all(abs(values[i+1] - values[i]) <= tolerance for i in range(len(values) - 1)):
+                return values
+    values = generate_values()
+
     if hardcoded:
         cutoffs = np.array(hardcoded_cutoffs[0])
         values = hardcoded_values[0]
 
     def desired_profile(t):
+        """Interpolate desired power based on time"""
         if t < 0:
             return 100
         for i, cutoff in enumerate(cutoffs):
-            if abs(t - cutoff) < 8: # WARNING: magic number ramp window of 10
-                # use point slope form: y = m(x-x0) + y0 at cutoff
-                power = (((values[i+1] - values[i]) / 16) *
-                         (t - cutoff) + (values[i] + values[i+1]) / 2)
+            if abs(t - cutoff) < 8:  # Ramp window of 8
+                # Use point-slope form: y = m(x - x0) + y0 at cutoff
+                power = (((values[i + 1] - values[i]) / 16) *
+                         (t - cutoff) + (values[i] + values[i + 1]) / 2)
                 return power
             elif t < cutoff:
                 return values[i]
         return values[-1]
-
     return desired_profile
 
 
