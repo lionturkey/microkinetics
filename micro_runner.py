@@ -26,17 +26,17 @@ def train_model_loop(run_name: str,
     vec_env = VecMonitor(vec_env,
                          filename=f'./runs/{run_name}/logs/vec')
     if pretrained_model_path is not None:
-        # model = sb3.PPO.load(pretrained_model_path, env=vec_env,
-        #                      tensorboard_log=tensorboard_dir)
-        model = sb3.SAC.load(pretrained_model_path, env=vec_env,
+        model = sb3.PPO.load(pretrained_model_path, env=vec_env,
                              tensorboard_log=tensorboard_dir)
+        # model = sb3.SAC.load(pretrained_model_path, env=vec_env,
+        #                      tensorboard_log=tensorboard_dir)
         model.num_timesteps = pretrained_timesteps
     else:
         model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
                         n_steps=n_steps,
                         tensorboard_log=tensorboard_dir)
-        model = sb3.SAC('MultiInputPolicy', vec_env, verbose=1,
-                        tensorboard_log=tensorboard_dir)
+        # model = sb3.SAC('MultiInputPolicy', vec_env, verbose=1,
+        #                 tensorboard_log=tensorboard_dir)
 
     eval_env = MicroEnv()
     eval_env = Monitor(eval_env, filename=f'./runs/{run_name}/logs/eval')
@@ -54,8 +54,8 @@ def train_model_loop(run_name: str,
 def load_model_loop(run_name: str, model_path: Path):
     
     env = MicroEnv(run_name=run_name)
-    # ppo_controller = sb3.PPO.load(model_path)
-    ppo_controller = sb3.SAC.load(model_path)
+    ppo_controller = sb3.PPO.load(model_path)
+    # ppo_controller = sb3.SAC.load(model_path)
     
     obs, _ = env.reset()
     rewards = []
@@ -132,7 +132,7 @@ if __name__ == '__main__':
     parser.add_argument('run_name', type=str, help='Name of the run')
     parser.add_argument('--run_type', type=str, default='train',
                         help='Must be train, load, or pid')
-    parser.add_argument('--num_timesteps', type=int, default=700000,)
+    parser.add_argument('--num_timesteps', type=int, default=500000,)
     parser.add_argument('--num_envs', type=int, default=6,
                         help='Number of parallel environments during training')
     parser.add_argument('--nsteps', type=int, default=2048,

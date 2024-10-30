@@ -167,14 +167,19 @@ class MicroEnv(gym.Env):
     def convert_action(self, action):
         """Convert from the -1 to 1 box space to -0.5 to 0.5"""
         if isinstance(action, float):
-            return action #/ 2
-        return action.item() #/ 2
+            return action / 2
+        return action.item() / 2
 
 
     def step(self, action):
         if self.time >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
+
         real_action = self.convert_action(action)
+        # print(f'real_action: {real_action}')
+        if abs(real_action) < 0.1:
+            real_action = 0
+
         num_steps = int(1 / self.dt)
         for _ in range(num_steps):
             self.reactor_dae(real_action / num_steps, debug=self.debug)
@@ -219,24 +224,15 @@ class MicroEnv(gym.Env):
         # First component: give reward to stay in the correct range
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
-        # reward = 5*np.ceil(self.time / 25)
         reward = 1
-        # reward += min(100, 1 / diff)
         reward += min(20, 1 / diff)
 
-        # prev_power = self.desired_profile(self.time - 1)
-        # if desired_power == prev_power and :
-        #     reward -= .1 * action**2
-
-        # if abs(action - self.action_history[-1]) < 0.05:
-        #     reward += 4
-
-
-        # action_diff = abs(action - self.action_history[-1])
-        # tolerance = 0.05
-        # prev_power = self.desired_profile(self.time - 1)
+        action_diff = abs(action - self.action_history[-1])
+        tolerance = 0.04
+        prev_power = self.desired_profile(self.time - 1)
         # if prev_power == desired_power and action_diff < tolerance:
-        #     reward += 20
+        if action_diff < tolerance:
+            reward += 20
 
         # Third component: give a punish outside bounds
         acceptable_error = 5
@@ -274,7 +270,7 @@ class MicroEnv(gym.Env):
         self.ax[2].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[2].set_xlabel('Time (s)')
         self.ax[2].set_ylabel('Action')
-        self.ax[2].set_ylim(-1.1, 1.1)
+        self.ax[2].set_ylim(-0.6, 0.6)
         self.ax[2].set_xlim(0, self.episode_length)
 
         self.ax[3].plot(self.diff_history)
@@ -361,7 +357,7 @@ hardcoded_values = [
     # [100, 80, 70, 40, 80, 40],
     # [100, 80, 70, 40, 70, 40],
     [100, 80, 70, 50, 65, 90],
-    # [100, 40, 70, 40, 80, 40],
+    # [100, 80, 95, 70, 50, 65],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
     # [100, 40, 70, 40, 80, 40],
