@@ -62,12 +62,13 @@ def load_model_loop(run_name: str, model_path: Path):
     
     done = False
     while not done:
-        env.render()
+        # env.render()
         gym_action, _states = ppo_controller.predict(obs, deterministic=True)
         obs, reward, terminated, truncated, _ = env.step(gym_action)
         rewards.append(reward)
         if terminated or truncated:
             done = True
+    env.render()
 
 
 def pid_loop(run_name: str, run_folder: Path):
@@ -122,7 +123,7 @@ def main(args):
             print('Invalid run type')
             return
 
-    create_gif(run_name, png_folder=run_folder)
+    # create_gif(run_name, png_folder=run_folder)
     
     
 
