@@ -367,7 +367,7 @@ hardcoded_values = [
     # [100, 40, 70, 40, 80, 40],
 ]
 
-def random_desired_profile(length=6000, hardcoded=False):
+def random_desired_profile(length=200, hardcoded=False):
     num_cutoffs = np.random.randint(3, 7)
     cutoffs = [int(x) for x in np.linspace(length/num_cutoffs, length, num_cutoffs, endpoint=False)]
     cutoffs += np.random.randint(-length//num_cutoffs//4, length//num_cutoffs//4, size=num_cutoffs)
@@ -381,7 +381,7 @@ def random_desired_profile(length=6000, hardcoded=False):
         values = hardcoded_values[0]
 
     def desired_profile(t):
-        ramp_length = 150
+        ramp_length = 8
         if t < 0:
             return 100
         for i, cutoff in enumerate(cutoffs):
