@@ -270,7 +270,9 @@ class MicroEnv(gym.Env):
         self.ax[2].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[2].set_xlabel('Time (s)')
         self.ax[2].set_ylabel('Action')
-        self.ax[2].set_ylim(-0.6, 0.6)
+        bound = np.max(np.abs(self.action_history)) * 1.1
+        # self.ax[2].set_ylim(-0.6, 0.6)
+        self.ax[2].set_ylim(-bound, bound)
         self.ax[2].set_xlim(0, self.episode_length)
 
         self.ax[3].plot(self.diff_history)
@@ -345,14 +347,16 @@ class MicroEnv(gym.Env):
         self.Tc += d_coolant_temp  * self.dt
 
 
+fac = 1
 hardcoded_cutoffs = [
     # [10, 50, 80, 130, 165],
     [30, 45, 77, 128, 160],
-    # [5, 53, 72, 130, 187],
+    # [10, 53, 72, 130, 187],
     # [10, 50, 70, 150, 200],
     # [10, 50, 70, 150, 200],
 ]
 
+hardcoded_cutoffs = [[x * fac for x in hardcoded_cutoffs[0]]]
 hardcoded_values = [
     # [100, 80, 70, 40, 80, 40],
     # [100, 80, 70, 40, 70, 40],
@@ -363,7 +367,7 @@ hardcoded_values = [
     # [100, 40, 70, 40, 80, 40],
 ]
 
-def random_desired_profile(length=200, hardcoded=False):
+def random_desired_profile(length=6000, hardcoded=False):
     num_cutoffs = np.random.randint(3, 7)
     cutoffs = [int(x) for x in np.linspace(length/num_cutoffs, length, num_cutoffs, endpoint=False)]
     cutoffs += np.random.randint(-length//num_cutoffs//4, length//num_cutoffs//4, size=num_cutoffs)
@@ -377,12 +381,13 @@ def random_desired_profile(length=200, hardcoded=False):
         values = hardcoded_values[0]
 
     def desired_profile(t):
+        ramp_length = 150
         if t < 0:
             return 100
         for i, cutoff in enumerate(cutoffs):
-            if abs(t - cutoff) < 8: # WARNING: magic number ramp window of 10
+            if abs(t - cutoff) < ramp_length: # WARNING: ramp window of 8
                 # use point slope form: y = m(x-x0) + y0 at cutoff
-                power = (((values[i+1] - values[i]) / 16) *
+                power = (((values[i+1] - values[i]) / (2*ramp_length)) *
                          (t - cutoff) + (values[i] + values[i+1]) / 2)
                 return power
             elif t < cutoff:
