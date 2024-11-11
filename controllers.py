@@ -14,7 +14,8 @@ class PIDController:
         mutiplier: the multiplier for the gains based on the number of drums
     """
 
-    def __init__(self, Kp=0.3, Ki=0.15, Kd=.1, Kaw=1, T_C=0.2, max_rate=1, multiplier=1):
+    # def __init__(self, Kp=0.3, Ki=0.15, Kd=.1, Kaw=1, T_C=0.2, max_rate=1, multiplier=1):
+    def __init__(self, Kp=0.1, Ki=0, Kd=0, Kaw=1, T_C=0.2, max_rate=1, multiplier=1):
         self.Kp = Kp * multiplier
         self.Ki = Ki * multiplier
         self.Kd = Kd * multiplier
