@@ -177,8 +177,8 @@ class MicroEnv(gym.Env):
 
         real_action = self.convert_action(action)
         # print(f'real_action: {real_action}')
-        if abs(real_action) < 0.1:
-            real_action = 0
+        # if abs(real_action) < 0.005:
+        #     real_action = 0
 
         num_steps = int(1 / self.dt)
         for _ in range(num_steps):
@@ -224,18 +224,22 @@ class MicroEnv(gym.Env):
         # First component: give reward to stay in the correct range
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
-        reward = 1
-        reward += min(20, 1 / diff)
+        reward = 4
+        # reward += min(100, 1 / diff)
+        reward -= diff
+        reward -= 20*(action**2)
 
-        action_diff = abs(action - self.action_history[-1])
-        tolerance = 0.04
-        prev_power = self.desired_profile(self.time - 1)
-        # if prev_power == desired_power and action_diff < tolerance:
-        if action_diff < tolerance:
-            reward += 20
+        # action_diff = abs(action - self.action_history[-1])
+        # reward -= action_diff
+
+        # tolerance = 0.04
+        # # prev_power = self.desired_profile(self.time - 1)
+        # # # if prev_power == desired_power and action_diff < tolerance:
+        # if action_diff < tolerance:
+        #     reward += 5
 
         # Third component: give a punish outside bounds
-        acceptable_error = 5
+        acceptable_error = 4
         terminated = False
         if diff > acceptable_error:
             reward = -100
@@ -253,32 +257,34 @@ class MicroEnv(gym.Env):
         self.ax[0].plot(self.power_history, label='Actual')
         self.ax[0].plot([self.desired_profile(t) for t in range(self.episode_length)], label='Desired', alpha=.5)
         self.ax[0].set_xlabel('Time (s)')
-        self.ax[0].set_ylabel('Power')
+        self.ax[0].set_ylabel('Power (SPU)')
         self.ax[0].legend()
-        self.ax[0].set_ylim(30, 110)
+        # self.ax[0].set_ylim(30, 110)
+        self.ax[0].set_ylim(0, 110)
         self.ax[0].set_xlim(0, self.episode_length)
 
         self.ax[1].plot(self.fuel_temp_history, label='Fuel')
         self.ax[1].plot(self.moderator_temp_history, label='Moderator')
         self.ax[1].plot(self.coolant_temp_history, label='Coolant')
         self.ax[1].set_xlabel('Time (s)')
-        self.ax[1].set_ylabel('Temperature')
+        self.ax[1].set_ylabel('Temperature (°C)')
         self.ax[1].legend()
         self.ax[1].set_xlim(0, self.episode_length)
 
         self.ax[2].plot(self.action_history)
         self.ax[2].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[2].set_xlabel('Time (s)')
-        self.ax[2].set_ylabel('Action')
+        self.ax[2].set_ylabel('Action (°/s)')
         bound = np.max(np.abs(self.action_history)) * 1.1
-        # self.ax[2].set_ylim(-0.6, 0.6)
+        self.ax[2].set_ylim(-0.6, 0.6)
+        # bound = 0.41
         self.ax[2].set_ylim(-bound, bound)
         self.ax[2].set_xlim(0, self.episode_length)
 
         self.ax[3].plot(self.diff_history)
         self.ax[3].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[3].set_xlabel('Time (s)')
-        self.ax[3].set_ylabel('desired - actual power')
+        self.ax[3].set_ylabel('desired - actual power (SPU)')
         self.ax[3].set_ylim(-5, 5)
         self.ax[3].set_xlim(0, self.episode_length)
 
@@ -290,7 +296,7 @@ class MicroEnv(gym.Env):
 
         self.ax[4].plot(self.drum_history)
         self.ax[4].set_xlabel('Time (s)')
-        self.ax[4].set_ylabel('drum rotation')
+        self.ax[4].set_ylabel('drum rotation (°)')
         self.ax[4].set_xlim(0, self.episode_length)
 
         plt.tight_layout()
@@ -381,25 +387,31 @@ def random_desired_profile(length=200, hardcoded=False):
         values = hardcoded_values[0]
 
     def desired_profile(t):
-        ramp_length = 8
-        if t < 0:
-            return 100
-        for i, cutoff in enumerate(cutoffs):
-            if abs(t - cutoff) < ramp_length: # WARNING: ramp window of 8
-                # use point slope form: y = m(x-x0) + y0 at cutoff
-                power = (((values[i+1] - values[i]) / (2*ramp_length)) *
-                         (t - cutoff) + (values[i] + values[i+1]) / 2)
-                return power
-            elif t < cutoff:
-                return values[i]
-        return values[-1]
+        flag_th = False
+        # flag_th = True
+        if not flag_th:
+            ramp_length = 8
+            if t < 0:
+                return 100
+            for i, cutoff in enumerate(cutoffs):
+                if abs(t - cutoff) < ramp_length: # WARNING: ramp window of 8
+                    # use point slope form: y = m(x-x0) + y0 at cutoff
+                    power = (((values[i+1] - values[i]) / (2*ramp_length)) *
+                            (t - cutoff) + (values[i] + values[i+1]) / 2)
+                    return power
+                elif t < cutoff:
+                    return values[i]
+            return values[-1]
+        else:
+            profile_values = -40 * np.tanh(0.05 * (t - 100)) + 60  # Scaling down t and shifting for variety
+            return profile_values
 
     return desired_profile
 
 
 def main():
     # create a microreactor simulator and a PID controller
-    env = MicroEnv(render_mode="human", run_name='ktest', debug=True)
+    env = MicroEnv(run_name='ktest')
     pid = PIDController()
 
     for _ in range(1):
@@ -409,13 +421,14 @@ def main():
         while not done:
             # gym_action = env.action_space.sample()
             gym_action = env.convert_action_to_gym(action)
-            print(f'action: {gym_action}')
+            # print(f'action: {gym_action}')
             obs, _, terminated, truncated, _ = env.step(gym_action)
-            print(f'obs: {obs}')
-            action = pid.update(env.time, obs["power"], env.desired_profile(env.time+1))
+            # print(f'obs: {obs}')
+            action = pid.update(env.time, obs["power"]*100, env.desired_profile(env.time+1))
             if terminated or truncated:
                 done = True
-    create_gif('ktest', (Path.cwd() / 'runs' / 'ktest'))
+    env.render()
+    # create_gif('ktest', (Path.cwd() / 'runs' / 'ktest'))
 
 
 if __name__ == '__main__':
