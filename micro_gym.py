@@ -82,7 +82,8 @@ class MicroEnv(gym.Env):
 
     def __init__(self, dt=0.1, episode_length=200,
                  render_mode=None, run_name=None, debug=False,
-                 scale_graphs=False, train_mode=True, noise=0.0):
+                 scale_graphs=False, train_mode=True, noise=0.0,
+                 profile='train', reward='optimal'):
         self.dt = dt
         if render_mode not in self.metadata["render_modes"] + [None]:
             raise ValueError(f"Invalid render mode: {render_mode}")

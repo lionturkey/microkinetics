@@ -88,6 +88,7 @@ def pid_loop(run_name: str, run_folder: Path):
             if terminated or truncated:
                 done = True
 
+
 def main(args):
     run_name = args.run_name
     run_folder = Path.cwd() / 'runs' / run_name
@@ -138,6 +139,12 @@ if __name__ == '__main__':
                         help='Number of parallel environments during training')
     parser.add_argument('--nsteps', type=int, default=2048,
                         help='PPO hyperparameter')
+    parser.add_argument('--noise', type=float, default=0.0,
+                        help='stdev of normal noise to add to observations')
+    parser.add_argument('--reward', type=str, default='optimal',
+                        help='optimal, frugal, or sleepy')
+    parser.add_argument('--profile', type=str, default='train',
+                        help='train, test, longtest, power0, xe20, xe20power0')
     
     args = parser.parse_args()
     main(args)
