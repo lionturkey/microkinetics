@@ -82,7 +82,7 @@ class MicroEnv(gym.Env):
 
     def __init__(self, dt=0.1, episode_length=200,
                  render_mode=None, run_name=None, debug=False,
-                 scale_graphs=False):
+                 scale_graphs=False, train_mode=True, noise=0.0):
         self.dt = dt
         if render_mode not in self.metadata["render_modes"] + [None]:
             raise ValueError(f"Invalid render mode: {render_mode}")
@@ -91,6 +91,8 @@ class MicroEnv(gym.Env):
         self.run_name = run_name
         self.debug = debug
         self.scale_graphs = scale_graphs
+        self.train_mode = train_mode
+        self.noise = noise
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
@@ -130,11 +132,12 @@ class MicroEnv(gym.Env):
         current_power = self.n_r * 100
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
+        fuzz = np.random.normal(0, self.noise)
         observation = {
             # "desired_power": np.array([current_desired_power/100]),
             "last_action": np.array([0]),
             "next_desired_power": np.array([next_desired_power/100]),
-            "power": np.array([current_power/100]),
+            "power": np.array([current_power/100 + fuzz]),
         }
 
         self.power_history = [current_power]
@@ -176,11 +179,12 @@ class MicroEnv(gym.Env):
         this_action = self.convert_action_to_gym(real_action)
         self.drum += this_action
 
+        fuzz = np.random.normal(0, self.noise)
         observation = {
             # "desired_power": np.array([current_desired_power/100]),
             "last_action": np.array([this_action]),
             "next_desired_power": np.array([next_desired_power/100]),
-            "power": np.array([current_power/100]),
+            "power": np.array([current_power/100 + fuzz]),
         }        
         reward, terminated = self.calc_reward(current_power, real_action)
         truncated = False
@@ -216,7 +220,10 @@ class MicroEnv(gym.Env):
         # reward -= 20*(action**2)
 
         # Third component: give a punish outside bounds
-        acceptable_error = 4
+        if self.train_mode:
+            acceptable_error = 4
+        else:
+            acceptable_error = 10
         terminated = False
         if diff > acceptable_error:
             reward = -100
