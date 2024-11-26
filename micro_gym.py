@@ -81,7 +81,8 @@ class MicroEnv(gym.Env):
     I0 = yi * Sum_f * Pi / lamda_I
 
     def __init__(self, dt=0.1, episode_length=200,
-                 render_mode=None, run_name=None, debug=False):
+                 render_mode=None, run_name=None, debug=False,
+                 scale_graphs=False):
         self.dt = dt
         if render_mode not in self.metadata["render_modes"] + [None]:
             raise ValueError(f"Invalid render mode: {render_mode}")
@@ -89,7 +90,7 @@ class MicroEnv(gym.Env):
         self.episode_length = episode_length
         self.run_name = run_name
         self.debug = debug
-
+        self.scale_graphs = scale_graphs
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
@@ -235,7 +236,6 @@ class MicroEnv(gym.Env):
         self.ax[0].set_xlabel('Time (s)')
         self.ax[0].set_ylabel('Power (SPU)')
         self.ax[0].legend()
-        # self.ax[0].set_ylim(30, 110)
         self.ax[0].set_ylim(0, 110)
         self.ax[0].set_xlim(0, self.episode_length)
 
@@ -251,9 +251,10 @@ class MicroEnv(gym.Env):
         self.ax[2].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[2].set_xlabel('Time (s)')
         self.ax[2].set_ylabel('Action (°/s)')
-        bound = np.max(np.abs(self.action_history)) * 1.1
-        self.ax[2].set_ylim(-0.6, 0.6)
-        # bound = 0.41
+        if self.scale_graphs:
+            bound = np.max(np.abs(self.action_history)) * 1.1
+        else:
+            bound = 0.41
         self.ax[2].set_ylim(-bound, bound)
         self.ax[2].set_xlim(0, self.episode_length)
 
@@ -261,14 +262,12 @@ class MicroEnv(gym.Env):
         self.ax[3].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
         self.ax[3].set_xlabel('Time (s)')
         self.ax[3].set_ylabel('desired - actual power (SPU)')
-        self.ax[3].set_ylim(-5, 5)
+        if self.scale_graphs:
+            bound = np.max(np.abs(self.diff_history)) * 1.1
+        else:
+            bound = 5
+        self.ax[3].set_ylim(-bound, bound)
         self.ax[3].set_xlim(0, self.episode_length)
-
-        # self.ax[4].plot(self.rho_diff_history)
-        # self.ax[4].set_xlabel('Time (s)')
-        # self.ax[4].set_ylabel('rho_d1 - rho')
-        # self.ax[4].set_ylim(-5, 5)
-        # self.ax[4].set_xlim(0, self.episode_length)
 
         self.ax[4].plot(self.drum_history)
         self.ax[4].set_xlabel('Time (s)')
@@ -276,7 +275,7 @@ class MicroEnv(gym.Env):
         self.ax[4].set_xlim(0, self.episode_length)
 
         plt.tight_layout()
-        plt.pause(.001)
+        # plt.pause(.001)  # a vestige from the video era
         if self.run_name:
             plt.savefig(f'runs/{self.run_name}/{self.time}.png')
 
