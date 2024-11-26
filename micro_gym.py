@@ -42,7 +42,6 @@ class MicroEnv(gym.Env):
     betas = np.array([1.42481E-04, 9.24281E-04, 7.79956E-04, 2.06583E-03, 6.71175E-04, 2.17806E-04])
     lambdas = np.array([1.272E-02, 3.174E-02, 1.160E-01, 3.110E-01, 1.400E+00, 3.870E+00])
 
-
     # table 2 in 
     cp_f = 977  # specific heat of fuel
     cp_m = 1697  # specific heat of moderator
@@ -55,24 +54,11 @@ class MicroEnv(gym.Env):
     mu_c = M_c * cp_c
     f_f = 0.96  # q in paper
     P_0 = 22e6
-    # Tf0 = 1105 # sooyoung's code
-    # Tf0 = 900 # kamal's code
-    # Tf0 = 832.4  # MPACT paper
     Tf0 = 832.4
-    # Tm0 = 1087 # sooyoung's code
-    # Tm0 = 898 # kamal's code
-    # Tm0 = 820 # MPACT paper
-    Tm0 = 830.22
-    # T_in = 864  # sooyoung's code
-    # T_in = 590   # MPACT paper
-    T_in = 795.47
+    Tm0 = 830.22  # MPACT paper
+    T_in = 795.47  # calculated in trash.py...
     T_out = 1106  # sooyoung's code
-    # T_out = 849.1  # MPACT paper
-    # Tc0 = (T_in + T_out) / 2
-    # Tc0 = 888 # kamal's code
-    Tc0 = 814.35
-    # K_fm = f_f * P_0 / (Tf0 - Tm0)
-    # K_mc = P_0 / (Tm0 - Tc0)
+    Tc0 = 814.35  # calculated in trash.py...
     K_fm = 1.17e6  # W/K
     K_mc = 2.16e5  # W/K
     M_dot = 1.75E+01
@@ -85,7 +71,6 @@ class MicroEnv(gym.Env):
     Xe0 = (yi + yx) * Sum_f * Pi / (lamda_x + Sig_x * Pi)
     I0 = yi * Sum_f * Pi / lamda_I
 
-    Rho_d0 = -0.033085599
     Reactivity_per_degree = 26.11e-5
     u0 = 77.56
     energy_per_fission_fuel = 3.2e-11
@@ -94,7 +79,6 @@ class MicroEnv(gym.Env):
     Pi = rated_power / (energy_per_fission_fuel * Sum_f * core_volume)
     Xe0 = (yi + yx) * Sum_f * Pi / (lamda_x + Sig_x * Pi)
     I0 = yi * Sum_f * Pi / lamda_I
-    Rho_d1 = Rho_d0 + u0 * Reactivity_per_degree
 
     def __init__(self, dt=0.1, episode_length=200,
                  render_mode=None, run_name=None, debug=False):
@@ -225,18 +209,10 @@ class MicroEnv(gym.Env):
         desired_power = self.desired_profile(self.time)
         diff = abs(power - desired_power)
         reward = 4
-        # reward += min(100, 1 / diff)
+
+        # Second component: give reward to stay close to the desired power
         reward -= diff
-        reward -= 20*(action**2)
-
-        # action_diff = abs(action - self.action_history[-1])
-        # reward -= action_diff
-
-        # tolerance = 0.04
-        # # prev_power = self.desired_profile(self.time - 1)
-        # # # if prev_power == desired_power and action_diff < tolerance:
-        # if action_diff < tolerance:
-        #     reward += 5
+        # reward -= 20*(action**2)
 
         # Third component: give a punish outside bounds
         acceptable_error = 4
