@@ -58,7 +58,7 @@ class MicroEnv(gym.Env):
     def __init__(self, dt=0.1, episode_length=200,
                  render_mode=None, run_name=None, debug=False,
                  scale_graphs=False, train_mode=True, noise=0.0,
-                 profile='train', reward='optimal'):
+                 profile='train', reward_mode='optimal'):
         self.dt = dt
         if render_mode not in self.metadata["render_modes"] + [None]:
             raise ValueError(f"Invalid render mode: {render_mode}")
@@ -69,6 +69,8 @@ class MicroEnv(gym.Env):
         self.scale_graphs = scale_graphs
         self.train_mode = train_mode
         self.noise = noise
+        self.profile = profile
+        self.reward = reward_mode
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
@@ -189,19 +191,25 @@ class MicroEnv(gym.Env):
         diff = abs(power - desired_power)
         reward = 4
 
-        # Second component: give reward to stay close to the desired power
-        reward -= diff
-        # reward -= 20*(action**2)
+        # Second component: alter reward if desired
+        if self.reward_mode == "optimal":
+            # reward to stay close to the desired power
+            reward -= diff
+        elif self.reward_mode == "frugal":
+            # reward small actions
+            reward -= 20*(action**2)
 
         # Third component: give a punish outside bounds
         if self.train_mode:
             acceptable_error = 4
         else:
             acceptable_error = 10
+
         terminated = False
         if diff > acceptable_error:
             reward = -100
             terminated = True
+
         return reward, terminated
 
 
@@ -231,6 +239,7 @@ class MicroEnv(gym.Env):
 
         self.ax[2].plot(self.action_history)
         self.ax[2].hlines(0, 0, self.episode_length, color='k', linestyle='dashed', alpha=.5)
+        self.ax[2].hlines([-4,4], 0, self.episode_length, color='r', alpha=.5)
         self.ax[2].set_xlabel('Time (s)')
         self.ax[2].set_ylabel('Action (°/s)')
         if self.scale_graphs:
