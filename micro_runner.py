@@ -7,8 +7,22 @@ from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.monitor import Monitor
 
-from micro_gym import MicroEnv, create_gif
+from micro_gym import MicroEnv
 from controllers import PIDController
+
+
+def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
+    # Build GIF
+    png_list = list(png_folder.glob('*.png'))
+    num_list = sorted([int(png.stem) for png in png_list])
+    png_list = [(png_folder / f'{i}.png') for i in num_list]
+    with imageio.get_writer((png_folder / f'{run_name}.gif'), mode='I') as writer:
+        for filepath in png_list[::2]:
+            image = imageio.imread(filepath)
+            writer.append_data(image)
+        for filepath in png_list:
+            # delete png
+            filepath.unlink()
 
 
 # TODO Run n_steps from 4 to 4000
