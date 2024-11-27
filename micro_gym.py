@@ -1,27 +1,8 @@
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
-import stable_baselines3 as sb3
-from stable_baselines3.common.env_util import make_vec_env
 from pathlib import Path
-import imageio
-from collections import deque
-
 from controllers import PIDController
-
-
-def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
-    # Build GIF
-    png_list = list(png_folder.glob('*.png'))
-    num_list = sorted([int(png.stem) for png in png_list])
-    png_list = [(png_folder / f'{i}.png') for i in num_list]
-    with imageio.get_writer((png_folder / f'{run_name}.gif'), mode='I') as writer:
-        for filepath in png_list[::2]:
-            image = imageio.imread(filepath)
-            writer.append_data(image)
-        for filepath in png_list:
-            # delete png
-            filepath.unlink()
 
 
 class MicroEnv(gym.Env):
@@ -31,18 +12,20 @@ class MicroEnv(gym.Env):
     }
 
     # Reactor parameters
-    sigma_Xe = 2.65e-22  # xenon micro xsec
+    sigma_Xe = 2.6e-22  # xenon micro xsec m^2 according to random online sources
     yield_I = 0.061  # yield iodine
     yield_Xe = 0.002  # yield xenon
-    lamda_Xe = 2.09e-5  # decay of xenon
-    lamda_I = 2.87e-5  # decay of iodine
-    Sigma_f = 0.3358  # macro xsec fission
-    l = 1.68e-3  # neutron lifetime
+    lambda_Xe = 2.09e-5  # decay of xenon s^-1
+    lambda_I = 2.87e-5  # decay of iodine s^-1
+    # Kamal used 0.3358, but working backwards from Choi 2020 p. 28 Fig.15c:
+    Sigma_f = 0.1117  # macro xsec fission m^-1
+    therm_n_vel = 2.19e3  # thermal neutron velocity m/s according to Wikipedia on neutron temp lol (0.25 eV)
+    neutron_lifetime = 1.68e-3  # s
     beta = 0.0048
     betas = np.array([1.42481E-04, 9.24281E-04, 7.79956E-04, 2.06583E-03, 6.71175E-04, 2.17806E-04])
     lambdas = np.array([1.272E-02, 3.174E-02, 1.160E-01, 3.110E-01, 1.400E+00, 3.870E+00])
 
-    # table 2 in 
+    # table 2 in Choi 2020
     cp_f = 977  # specific heat of fuel
     cp_m = 1697  # specific heat of moderator
     cp_c = 5188.6  # specific heat of coolant
@@ -50,7 +33,6 @@ class MicroEnv(gym.Env):
     M_m = 11573  # mass of moderator
     M_c = 500  # mass of coolant
     heat_f = 0.96  # q in paper, fraction of heat deposited in fuel
-    P_0 = 22e6
     Tf0 = 832.4
     Tm0 = 830.22  # MPACT paper
     T_in = 795.47  # calculated in trash.py...
@@ -62,20 +44,16 @@ class MicroEnv(gym.Env):
     alpha_f = -2.875e-5
     alpha_m = -3.696e-5
     alpha_c = 0.0
-    G = 3.2e-11
-    V = 400 * 200
-    Pi = P_0 / (G * Sigma_f * V)
-    Xe0 = (yield_I + yield_Xe) * Sigma_f * Pi / (lamda_Xe + sigma_Xe * Pi)
-    I0 = yield_I * Sigma_f * Pi / lamda_I
-
-    Reactivity_per_degree = 26.11e-5
+    n_0 = 2.25e13  # m^-3
+    P_r = 22e6  # rated power in Watts
+    reactivity_per_degree = 26.11e-5
     u0 = 77.56
-    energy_per_fission_fuel = 3.2e-11
-    core_volume = 400 * 200
-    rated_power = 22e6
-    Pi = rated_power / (energy_per_fission_fuel * Sigma_f * core_volume)
-    Xe0 = (yield_I + yield_Xe) * Sigma_f * Pi / (lamda_Xe + sigma_Xe * Pi)
-    I0 = yield_I * Sigma_f * Pi / lamda_I
+    I0 = yield_I * Sigma_f * therm_n_vel * n_0 / lambda_I
+    Xe0 = ((yield_Xe * Sigma_f * therm_n_vel * n_0
+            + lambda_I * I0)
+           / (lambda_Xe
+              + sigma_Xe * therm_n_vel * n_0))
+
 
     def __init__(self, dt=0.1, episode_length=200,
                  render_mode=None, run_name=None, debug=False,
@@ -94,7 +72,6 @@ class MicroEnv(gym.Env):
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
-            # "desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "last_action": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
@@ -104,7 +81,7 @@ class MicroEnv(gym.Env):
             self.run_folder = Path.cwd() / 'runs' / run_name
             self.run_folder.mkdir(parents=True, exist_ok=True)
 
-        _, self.ax = plt.subplots(5, 1, figsize=(8, 12))
+        _, self.ax = plt.subplots(6, 1, figsize=(8, 12))
             
         self.reset()
 
@@ -122,30 +99,28 @@ class MicroEnv(gym.Env):
         self.Tf = self.Tf0
         self.Tm = self.Tm0
         self.Tc = self.Tc0
-        self.Rho_d1 = 0
+        self.rho_drum = 0
         self.rho = 0
 
         self.drum = 77.8
 
-        current_power = self.n_r * 100
-        current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         fuzz = np.random.normal(0, self.noise)
         observation = {
-            # "desired_power": np.array([current_desired_power/100]),
             "last_action": np.array([0]),
             "next_desired_power": np.array([next_desired_power/100]),
-            "power": np.array([current_power/100 + fuzz]),
+            "power": np.array([self.n_r + fuzz]),
         }
 
-        self.power_history = [current_power]
+        self.power_history = [initial_power]
         self.fuel_temp_history = [self.Tf]
         self.moderator_temp_history = [self.Tm]
         self.coolant_temp_history = [self.Tc]
         self.action_history = [0]
         self.diff_history = [0]
-        self.rho_diff_history = [0]
         self.drum_history = [self.drum]
+        self.Xe_history = [self.Xe]
+        self.I_history = [self.I]
 
         return observation, {}
 
@@ -197,8 +172,9 @@ class MicroEnv(gym.Env):
         self.coolant_temp_history.append(self.Tc)
         self.action_history.append(real_action)
         self.diff_history.append(current_desired_power - current_power)
-        self.rho_diff_history.append(self.Rho_d1 - self.rho)
         self.drum_history.append(self.drum)
+        self.Xe_history.append(self.Xe)
+        self.I_history.append(self.I)
         
         if self.render_mode == "human":
             self.render()
@@ -235,6 +211,7 @@ class MicroEnv(gym.Env):
         self.ax[2].cla()
         self.ax[3].cla()
         self.ax[4].cla()
+        self.ax[5].cla()
         
         self.ax[0].plot(self.power_history, label='Actual')
         self.ax[0].plot([self.desired_profile(t) for t in range(self.episode_length)], label='Desired', alpha=.5)
@@ -279,6 +256,13 @@ class MicroEnv(gym.Env):
         self.ax[4].set_ylabel('drum rotation (°)')
         self.ax[4].set_xlim(0, self.episode_length)
 
+        self.ax[5].plot(self.Xe_history, label='Xe')
+        self.ax[5].plot(self.I_history, label='I')
+        self.ax[5].set_xlabel('Time (s)')
+        self.ax[5].set_ylabel('number density (#/m^3)')
+        self.ax[5].legend()
+        self.ax[5].set_xlim(0, self.episode_length)
+
         plt.tight_layout()
         # plt.pause(.001)  # a vestige from the video era
         if self.run_name:
@@ -291,10 +275,10 @@ class MicroEnv(gym.Env):
 
 
     def reactor_dae(self, drum_rotation, debug=False):
-        self.Rho_d1 += drum_rotation * self.Reactivity_per_degree
+        self.rho_drum += drum_rotation * self.reactivity_per_degree
 
         # ODEs
-        rho = (self.Rho_d1
+        rho = (self.rho_drum
                + self.alpha_f * (self.Tf - self.Tf0)
                + self.alpha_m * (self.Tm - self.Tm0)
                 - self.sigma_Xe * (self.Xe - self.Xe0) / self.Sigma_f)
@@ -303,24 +287,25 @@ class MicroEnv(gym.Env):
         # Kinetics equations with six-delayed neutron groups        
         d_n_r = (((rho - self.beta) * self.n_r
                   + np.sum(self.betas * self.precursor_concentrations))
-                 / self.l)
+                 / self.neutron_lifetime)
         d_precursor_concentrations = (self.lambdas * self.n_r
                                       - self.lambdas * self.precursor_concentrations)
         
         # Xenon and Iodine dynamics
-        d_xenon = (self.yield_Xe * self.Sigma_f * self.Pi
-                   + self.lamda_I * self.I
-                   - self.sigma_Xe * self.Xe * self.Pi
-                   - self.lamda_Xe * self.Xe)
-        d_iodine = (self.yield_I * self.Sigma_f * self.Pi
-                    - self.lamda_I * self.I)
+        n_rate_density = self.therm_n_vel * self.n_0 * self.n_r
+        d_iodine = (self.yield_I * self.Sigma_f * n_rate_density
+                    - self.lambda_I * self.I)
+        d_xenon = (self.yield_Xe * self.Sigma_f * n_rate_density
+                   + self.lambda_I * self.I
+                   - self.lambda_Xe * self.Xe
+                   - self.sigma_Xe * self.Xe * n_rate_density)
 
         # Thermal–hydraulics model of the reactor core
-        d_fuel_temp = ((self.heat_f * self.P_0 * self.n_r
+        d_fuel_temp = ((self.heat_f * self.P_r * self.n_r
                         - self.K_fm * (self.Tf - self.Tc))
                        / (self.M_f * self.cp_f))
         
-        d_moderator_temp = (((1 - self.heat_f) * self.P_0 * self.n_r
+        d_moderator_temp = (((1 - self.heat_f) * self.P_r * self.n_r
                              + self.K_fm * (self.Tf - self.Tm)
                              - self.K_mc * (self.Tm - self.Tc))
                             / (self.M_m * self.cp_m))
