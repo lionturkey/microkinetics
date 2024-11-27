@@ -31,12 +31,12 @@ class MicroEnv(gym.Env):
     }
 
     # Reactor parameters
-    Sig_x = 2.65e-22  # xenon micro xsec
-    yi = 0.061  # yield iodine
-    yx = 0.002  # yield xenon
-    lamda_x = 2.09e-5  # decay of xenon
+    sigma_Xe = 2.65e-22  # xenon micro xsec
+    yield_I = 0.061  # yield iodine
+    yield_Xe = 0.002  # yield xenon
+    lamda_Xe = 2.09e-5  # decay of xenon
     lamda_I = 2.87e-5  # decay of iodine
-    Sum_f = 0.3358  # macro xsec fission
+    Sigma_f = 0.3358  # macro xsec fission
     l = 1.68e-3  # neutron lifetime
     beta = 0.0048
     betas = np.array([1.42481E-04, 9.24281E-04, 7.79956E-04, 2.06583E-03, 6.71175E-04, 2.17806E-04])
@@ -49,10 +49,7 @@ class MicroEnv(gym.Env):
     M_f = 2002  # mass of fuel
     M_m = 11573  # mass of moderator
     M_c = 500  # mass of coolant
-    mu_f = M_f * cp_f  
-    mu_m = M_m * cp_m
-    mu_c = M_c * cp_c
-    f_f = 0.96  # q in paper
+    heat_f = 0.96  # q in paper, fraction of heat deposited in fuel
     P_0 = 22e6
     Tf0 = 832.4
     Tm0 = 830.22  # MPACT paper
@@ -67,18 +64,18 @@ class MicroEnv(gym.Env):
     alpha_c = 0.0
     G = 3.2e-11
     V = 400 * 200
-    Pi = P_0 / (G * Sum_f * V)
-    Xe0 = (yi + yx) * Sum_f * Pi / (lamda_x + Sig_x * Pi)
-    I0 = yi * Sum_f * Pi / lamda_I
+    Pi = P_0 / (G * Sigma_f * V)
+    Xe0 = (yield_I + yield_Xe) * Sigma_f * Pi / (lamda_Xe + sigma_Xe * Pi)
+    I0 = yield_I * Sigma_f * Pi / lamda_I
 
     Reactivity_per_degree = 26.11e-5
     u0 = 77.56
     energy_per_fission_fuel = 3.2e-11
     core_volume = 400 * 200
     rated_power = 22e6
-    Pi = rated_power / (energy_per_fission_fuel * Sum_f * core_volume)
-    Xe0 = (yi + yx) * Sum_f * Pi / (lamda_x + Sig_x * Pi)
-    I0 = yi * Sum_f * Pi / lamda_I
+    Pi = rated_power / (energy_per_fission_fuel * Sigma_f * core_volume)
+    Xe0 = (yield_I + yield_Xe) * Sigma_f * Pi / (lamda_Xe + sigma_Xe * Pi)
+    I0 = yield_I * Sigma_f * Pi / lamda_I
 
     def __init__(self, dt=0.1, episode_length=200,
                  render_mode=None, run_name=None, debug=False,
@@ -120,7 +117,7 @@ class MicroEnv(gym.Env):
         self.n_r = initial_power / 100
         self.precursor_concentrations = np.array([self.n_r] * 6)
         self.time = 0
-        self.X = self.Xe0
+        self.Xe = self.Xe0
         self.I = self.I0
         self.Tf = self.Tf0
         self.Tm = self.Tm0
@@ -178,14 +175,14 @@ class MicroEnv(gym.Env):
         current_desired_power = self.desired_profile(self.time)
         next_desired_power = self.desired_profile(self.time + 1)
         this_action = self.convert_action_to_gym(real_action)
-        self.drum += this_action
+        self.drum += real_action
 
         fuzz = np.random.normal(0, self.noise)
         observation = {
             # "desired_power": np.array([current_desired_power/100]),
             "last_action": np.array([this_action]),
             "next_desired_power": np.array([next_desired_power/100]),
-            "power": np.array([current_power/100 + fuzz]),
+            "power": np.array([self.n_r + fuzz]),
         }        
         reward, terminated = self.calc_reward(current_power, real_action)
         truncated = False
@@ -297,24 +294,39 @@ class MicroEnv(gym.Env):
         self.Rho_d1 += drum_rotation * self.Reactivity_per_degree
 
         # ODEs
-        rho = self.Rho_d1 + self.alpha_f * (self.Tf - self.Tf0) + self.alpha_m * (self.Tm - self.Tm0)
+        rho = (self.Rho_d1
+               + self.alpha_f * (self.Tf - self.Tf0)
+               + self.alpha_m * (self.Tm - self.Tm0)
+                - self.sigma_Xe * (self.Xe - self.Xe0) / self.Sigma_f)
         self.rho = rho
-        # - self.Sig_x * (self.X - self.Xe0) / self.Sum_f
-        # rho = self.Rho_d1
 
         # Kinetics equations with six-delayed neutron groups        
-        d_n_r = (rho - self.beta) * self.n_r / self.l + np.sum(self.betas * self.precursor_concentrations / self.l)
-        d_precursor_concentrations = self.lambdas * self.n_r - self.lambdas * self.precursor_concentrations
+        d_n_r = (((rho - self.beta) * self.n_r
+                  + np.sum(self.betas * self.precursor_concentrations))
+                 / self.l)
+        d_precursor_concentrations = (self.lambdas * self.n_r
+                                      - self.lambdas * self.precursor_concentrations)
         
         # Xenon and Iodine dynamics
-        # d_xenon = self.yx * self.Sum_f * self.Pi + self.lamda_I * self.I - self.Sig_x * self.X * self.Pi - self.lamda_x * self.X
-        # d_iodine = self.yi * self.Sum_f * self.Pi - self.lamda_I * self.I
+        d_xenon = (self.yield_Xe * self.Sigma_f * self.Pi
+                   + self.lamda_I * self.I
+                   - self.sigma_Xe * self.Xe * self.Pi
+                   - self.lamda_Xe * self.Xe)
+        d_iodine = (self.yield_I * self.Sigma_f * self.Pi
+                    - self.lamda_I * self.I)
 
         # Thermal–hydraulics model of the reactor core
-        d_fuel_temp = self.f_f * self.P_0 / self.mu_f * self.n_r - self.K_fm / self.mu_f * (self.Tf - self.Tc)
-        d_moderator_temp = (1 - self.f_f) * self.P_0 / self.mu_m * self.n_r + (self.K_fm * (self.Tf - self.Tm) - self.K_mc * (self.Tm - self.Tc)) / self.mu_m
-        d_coolant_temp = self.K_mc * (self.Tm - self.Tc) / self.mu_c - 2 * self.M_dot * self.cp_c * (self.Tc - self.T_in) / self.mu_c
-
+        d_fuel_temp = ((self.heat_f * self.P_0 * self.n_r
+                        - self.K_fm * (self.Tf - self.Tc))
+                       / (self.M_f * self.cp_f))
+        
+        d_moderator_temp = (((1 - self.heat_f) * self.P_0 * self.n_r
+                             + self.K_fm * (self.Tf - self.Tm)
+                             - self.K_mc * (self.Tm - self.Tc))
+                            / (self.M_m * self.cp_m))
+        d_coolant_temp = ((self.K_mc * (self.Tm - self.Tc)
+                           - 2*self.M_dot * self.cp_c * (self.Tc - self.T_in))
+                          / (self.M_c * self.cp_c))
 
         if debug:
             print('##########################')
@@ -329,8 +341,8 @@ class MicroEnv(gym.Env):
 
         self.n_r += d_n_r * self.dt
         self.precursor_concentrations += d_precursor_concentrations  * self.dt
-        # self.X += d_xenon  * self.dt
-        # self.I += d_iodine * self.dt
+        self.Xe += d_xenon  * self.dt
+        self.I += d_iodine * self.dt
         self.Tf += d_fuel_temp * self.dt
         self.Tm += d_moderator_temp  * self.dt
         self.Tc += d_coolant_temp  * self.dt
