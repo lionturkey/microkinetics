@@ -273,7 +273,7 @@ class MicroEnv(gym.Env):
         if self.run_name:
             fig_name = (f'runs/{self.run_name}/{self.run_mode}-mode_'
                         f'{self.noise}-noise_{self.profile}-profile_'
-                        f'{self.reward}-reward_{self.time}.png')
+                        f'{self.reward_mode}-reward_{self.time}.png')
             plt.savefig(fig_name)
 
 
@@ -405,11 +405,8 @@ def pid_loop(env):
     done = False
     action = 0.
     while not done:
-        # gym_action = env.action_space.sample()
         gym_action = env.convert_action_to_gym(action)
-        # print(f'action: {gym_action}')
         obs, _, terminated, truncated, _ = env.step(gym_action)
-        # print(f'obs: {obs}')
         action = pid.update(env.time, obs["power"]*100, env.desired_profile(env.time+1))
         if terminated or truncated:
             done = True
