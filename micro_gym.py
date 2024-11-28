@@ -17,7 +17,7 @@ class MicroEnv(gym.Env):
     yield_Xe = 0.002  # yield xenon
     lambda_Xe = 2.09e-5  # decay of xenon s^-1
     lambda_I = 2.87e-5  # decay of iodine s^-1
-    # Kamal used 0.3358, but working backwards from Choi 2020 p. 28 Fig.15c:
+    # Kamal used 0.3358, but working backwards from estimated values in Choi 2020 p. 28 Fig.15c:
     Sigma_f = 0.1117  # macro xsec fission m^-1
     therm_n_vel = 2.19e3  # thermal neutron velocity m/s according to Wikipedia on neutron temp lol (0.25 eV)
     neutron_lifetime = 1.68e-3  # s
@@ -57,7 +57,7 @@ class MicroEnv(gym.Env):
 
     def __init__(self, dt=0.1, episode_length=200,
                  render_mode=None, run_name=None, debug=False,
-                 scale_graphs=False, train_mode=True, noise=0.0,
+                 scale_graphs=False, run_mode="train", noise=0.0,
                  profile='train', reward_mode='optimal'):
         self.dt = dt
         if render_mode not in self.metadata["render_modes"] + [None]:
@@ -67,10 +67,10 @@ class MicroEnv(gym.Env):
         self.run_name = run_name
         self.debug = debug
         self.scale_graphs = scale_graphs
-        self.train_mode = train_mode
+        self.run_mode = run_mode
         self.noise = noise
         self.profile = profile
-        self.reward = reward_mode
+        self.reward_mode = reward_mode
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
@@ -139,9 +139,6 @@ class MicroEnv(gym.Env):
             raise RuntimeError("Episode length exceeded")
 
         real_action = self.convert_action(action)
-        # print(f'real_action: {real_action}')
-        # if abs(real_action) < 0.005:
-        #     real_action = 0
 
         num_steps = int(1 / self.dt)
         for _ in range(num_steps):
@@ -156,7 +153,6 @@ class MicroEnv(gym.Env):
 
         fuzz = np.random.normal(0, self.noise)
         observation = {
-            # "desired_power": np.array([current_desired_power/100]),
             "last_action": np.array([this_action]),
             "next_desired_power": np.array([next_desired_power/100]),
             "power": np.array([self.n_r + fuzz]),
@@ -200,7 +196,7 @@ class MicroEnv(gym.Env):
             reward -= 20*(action**2)
 
         # Third component: give a punish outside bounds
-        if self.train_mode:
+        if self.run_mode == "train":
             acceptable_error = 4
         else:
             acceptable_error = 10
@@ -275,7 +271,10 @@ class MicroEnv(gym.Env):
         plt.tight_layout()
         # plt.pause(.001)  # a vestige from the video era
         if self.run_name:
-            plt.savefig(f'runs/{self.run_name}/{self.time}.png')
+            fig_name = (f'runs/{self.run_name}/{self.run_mode}-mode_'
+                        f'{self.noise}-noise_{self.profile}-profile_'
+                        f'{self.reward}-reward_{self.time}.png')
+            plt.savefig(fig_name)
 
 
     def convert_action_to_gym(self, action):
@@ -398,26 +397,29 @@ def random_desired_profile(length=200, hardcoded=False):
     return desired_profile
 
 
-def main():
+def pid_loop(env):
     # create a microreactor simulator and a PID controller
-    env = MicroEnv(run_name='ktest')
     pid = PIDController()
 
-    for _ in range(1):
-        env.reset()
-        done = False
-        action = 0.
-        while not done:
-            # gym_action = env.action_space.sample()
-            gym_action = env.convert_action_to_gym(action)
-            # print(f'action: {gym_action}')
-            obs, _, terminated, truncated, _ = env.step(gym_action)
-            # print(f'obs: {obs}')
-            action = pid.update(env.time, obs["power"]*100, env.desired_profile(env.time+1))
-            if terminated or truncated:
-                done = True
+    env.reset()
+    done = False
+    action = 0.
+    while not done:
+        # gym_action = env.action_space.sample()
+        gym_action = env.convert_action_to_gym(action)
+        # print(f'action: {gym_action}')
+        obs, _, terminated, truncated, _ = env.step(gym_action)
+        # print(f'obs: {obs}')
+        action = pid.update(env.time, obs["power"]*100, env.desired_profile(env.time+1))
+        if terminated or truncated:
+            done = True
     env.render()
-    # create_gif('ktest', (Path.cwd() / 'runs' / 'ktest'))
+
+
+def main():
+    # create a microreactor simulator and a PID controller
+    env = MicroEnv(run_name='ktest', run_mode='pid')
+    pid_loop(env)
 
 
 if __name__ == '__main__':
