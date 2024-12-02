@@ -72,6 +72,12 @@ class MicroEnv(gym.Env):
         self.profile = profile
         self.reward_mode = reward_mode
 
+        if 'long' in self.profile:
+            self.episode_length = 6_000
+        if '20' in self.profile:
+            self.episode_length = 72_000
+            # self.episode_length = 576_000
+
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
             "last_action": gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32),
@@ -341,7 +347,8 @@ class MicroEnv(gym.Env):
         self.Tc += d_coolant_temp  * self.dt
 
 
-fac = 1
+fac = 360
+# fac = 2880
 hardcoded_cutoffs = [
     # [10, 50, 80, 130, 165],
     [30, 45, 77, 128, 160],
