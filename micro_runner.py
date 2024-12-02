@@ -81,11 +81,19 @@ def noise_loop(model_path: Path, run_kwargs: dict):
     std_lengths = np.array(std_lengths)
     noise_levels = np.array(noise_levels) * 100
 
+    # Increase the size of text in plots
+    plt.rc('axes', titlesize=14)     # fontsize of the axes title
+    plt.rc('axes', labelsize=12)     # fontsize of the x and y labels
+    plt.rc('xtick', labelsize=10)    # fontsize of the tick labels
+    plt.rc('ytick', labelsize=10)    # fontsize of the tick labels
+    plt.rc('legend', fontsize=12)    # legend fontsize
+    plt.rc('font', size=14)          # controls default text sizes
+
     # plot noise vs reward
     plt.clf()
-    plt.errorbar(noise_levels, avg_rewards, yerr=std_rewards, fmt='-o', capsize=3)
+    plt.errorbar(noise_levels, avg_rewards, yerr=[std_rewards, np.minimum(std_rewards, avg_rewards.max() - avg_rewards)], fmt='-o', capsize=3)
     # plt.plot(noise_levels, avg_rewards)
-    plt.fill_between(noise_levels, avg_rewards - std_rewards, avg_rewards + std_rewards, alpha=.2)
+    plt.fill_between(noise_levels, avg_rewards - std_rewards, avg_rewards + np.minimum(std_rewards, avg_rewards.max() - avg_rewards), alpha=.2)
     plt.xlabel('Noise (standard power units)')
     plt.ylabel('Reward')
     plt.title('Reward vs Noise')
@@ -93,9 +101,9 @@ def noise_loop(model_path: Path, run_kwargs: dict):
 
     # plot noise vs length
     plt.clf()
-    plt.errorbar(noise_levels, avg_lengths, yerr=std_lengths, fmt='-o', capsize=3)
+    plt.errorbar(noise_levels, avg_lengths, yerr=[std_lengths, np.minimum(std_lengths, 200 - avg_lengths)], fmt='-o', capsize=3)
     # plt.plot(noise_levels, avg_lengths)
-    plt.fill_between(noise_levels, avg_lengths - std_lengths, avg_lengths + std_lengths, alpha=.2)
+    plt.fill_between(noise_levels, avg_lengths - std_lengths, avg_lengths + np.minimum(std_lengths, 200 - avg_lengths), alpha=.2)
     plt.xlabel('Noise (standard power units)')
     plt.ylabel('Episode Length')
     plt.title('Episode Length vs Noise')
