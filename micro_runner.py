@@ -7,6 +7,8 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.monitor import Monitor
+import numpy as np
+import matplotlib.pyplot as plt
 
 from micro_gym import MicroEnv, pid_loop
 
@@ -25,20 +27,79 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
             filepath.unlink()
 
 
-def load_model_loop(model_path: Path, env):
-    ppo_controller = sb3.PPO.load(model_path)
-    
+def control_loop(model, env, render=False):
+    # TODO: add gif capability
     obs, _ = env.reset()
-    rewards = []
+    episode_reward = 0
+    episode_length = 0
     
     done = False
     while not done:
-        gym_action, _states = ppo_controller.predict(obs, deterministic=True)
+        gym_action, _states = model.predict(obs, deterministic=True)
         obs, reward, terminated, truncated, _ = env.step(gym_action)
-        rewards.append(reward)
+        episode_reward += reward
+        episode_length += 1
         if terminated or truncated:
             done = True
-    env.render()
+
+    if render:
+        env.render()
+
+    return episode_reward, episode_length
+
+
+def noise_loop(model_path: Path, run_kwargs: dict):
+    ppo_controller = sb3.PPO.load(model_path)
+    run_folder = model_path.parent
+
+    noise_levels = [0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.2]
+
+    avg_rewards = []
+    std_rewards = []
+    avg_lengths = []
+    std_lengths = []
+
+    for noise in noise_levels:
+        run_kwargs['noise'] = noise
+        env = MicroEnv(**run_kwargs)
+
+        rewards = []
+        lengths = []
+        for _ in range(50):
+            reward, length = control_loop(ppo_controller, env)
+            rewards.append(reward)
+            lengths.append(length)
+        
+        avg_rewards.append(np.mean(rewards))
+        std_rewards.append(np.std(rewards))
+        avg_lengths.append(np.mean(lengths))
+        std_lengths.append(np.std(lengths))
+    
+    avg_rewards = np.array(avg_rewards)
+    std_rewards = np.array(std_rewards)
+    avg_lengths = np.array(avg_lengths)
+    std_lengths = np.array(std_lengths)
+    noise_levels = np.array(noise_levels) * 100
+
+    # plot noise vs reward
+    plt.clf()
+    plt.errorbar(noise_levels, avg_rewards, yerr=std_rewards, fmt='-o', capsize=3)
+    # plt.plot(noise_levels, avg_rewards)
+    plt.fill_between(noise_levels, avg_rewards - std_rewards, avg_rewards + std_rewards, alpha=.2)
+    plt.xlabel('Noise (standard power units)')
+    plt.ylabel('Reward')
+    plt.title('Reward vs Noise')
+    plt.savefig(run_folder / 'reward_vs_noise.png')
+
+    # plot noise vs length
+    plt.clf()
+    plt.errorbar(noise_levels, avg_lengths, yerr=std_lengths, fmt='-o', capsize=3)
+    # plt.plot(noise_levels, avg_lengths)
+    plt.fill_between(noise_levels, avg_lengths - std_lengths, avg_lengths + std_lengths, alpha=.2)
+    plt.xlabel('Noise (standard power units)')
+    plt.ylabel('Episode Length')
+    plt.title('Episode Length vs Noise')
+    plt.savefig(run_folder / 'length_vs_noise.png')
 
 
 def check_zip(run_folder: Path):
@@ -115,10 +176,16 @@ def main(args):
     elif args.run_type == 'pid':
         pid_loop(eval_env)
         return  # exit
+    elif args.run_type == 'noisetest':
+        noise_loop(best_model, run_kwargs)
+        return  # exit
 
     # Load best model
     if best_model:
-        load_model_loop(best_model, eval_env)
+        ppo_controller = sb3.PPO.load(best_model)
+        reward, length = control_loop(ppo_controller, eval_env, render=True)
+        print(f'Episode reward: {reward}')
+        print(f'Episode length: {length}')
     else:
         print('Error: no best model found')
 
@@ -127,7 +194,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Create a gif from pngs')
     parser.add_argument('run_name', type=str, help='Name of the run')
     parser.add_argument('--run_type', type=str, default='train',
-                        help='Must be train, load, or pid')
+                        help='Must be train, load, noisetest, or pid')
     parser.add_argument('--num_timesteps', type=int, default=800000,)
     parser.add_argument('--num_envs', type=int, default=6,
                         help='Number of parallel environments during training')
