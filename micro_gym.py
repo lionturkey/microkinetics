@@ -345,6 +345,29 @@ class MicroEnv(gym.Env):
         self.Tf += d_fuel_temp * self.dt
         self.Tm += d_moderator_temp  * self.dt
         self.Tc += d_coolant_temp  * self.dt
+    
+    # def generate_desired_profile(self):
+    #     powers = [100, 80, 70, 50, 65, 90, 100]
+    #     ramp_rates = [1, 1.1, 0.8, 1.1, 0.8, 1.5, 0.001]
+    #     durations = [20, 20, 20, 20, 20, 20, 200]
+
+    #     # generate region list
+    #     region_list = [0]
+    #     for index in range(len(powers)):
+    #         # note: requires the last power to be the same as the first
+    #         ramp_length = abs(powers[index] - powers[index - 1]) / ramp_rates[index]
+    #         duration = durations[index]
+    #         region_list.append(region_list[-1] + ramp_length)
+    #         region_list.append(region_list[-1] + duration)
+
+    #     def desired_profile(time):
+    #         # find the region the time is in
+    #         region_index = np.diff(time >= region_list).argmax()  # TODO: explain
+
+    #         # determine power
+    #         if region_index % 2 == 0:
+    #         desired_power = power + ramp_rate * time_length
+
 
 
 fac = 360
