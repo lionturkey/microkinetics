@@ -369,8 +369,8 @@ class MicroEnv(gym.Env):
     #         desired_power = power + ramp_rate * time_length
 
 
-
-fac = 360
+fac = 1
+# fac = 360
 # fac = 2880
 hardcoded_cutoffs = [
     # [10, 50, 80, 130, 165],
