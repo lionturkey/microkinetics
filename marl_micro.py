@@ -59,16 +59,16 @@ class MARLMicroEnv(ParallelEnv):
         obs["last_power"] = self.last_power
         
         observations = {agent: obs for agent in self.agents}
-        infos = {agent: {} for agent in self.agents}
+        self.infos = {agent: {} for agent in self.agents}
 
         self.masks = {agent: 1 for agent in self.agents}
         num_masks = np.random.randint(self.min_masks, self.max_masks + 1)
         disabled_agents = np.random.choice(self.agents, size=num_masks, replace=False)
         for agent in disabled_agents:
             self.masks[agent] = 0
-        infos["masks"] = self.masks
+        # self.infos["masks"] = self.masks
 
-        return observations, infos
+        return observations, self.infos
 
     def step(self, actions):
         # Combine actions from all agents
@@ -111,8 +111,19 @@ def train_loop(env, run_folder):
     #                              log_path=run_folder / 'logs', eval_freq=50_000)
     # callbacks = CallbackList([checkpoint_callback, eval_callback])
 
-    model = PPO("MultiInputPolicy", env, verbose=1, tensorboard_log=str(tensorboard_dir), device='cpu')
-    model.learn(total_timesteps=20_000_000, callback=checkpoint_callback, progress_bar=True)
+    saved_models = list(run_folder.glob('*_steps.zip'))
+    if saved_models:
+        latest_model = max(saved_models, key=lambda x: int(str(x).split('_')[-2]))
+        model = PPO.load(latest_model, device='cpu', env=env, verbose=1,
+                         tensorboard_log=str(tensorboard_dir), print_system_info=True)
+        current_timesteps = int(str(latest_model).split('_')[-2])
+        model.n_steps = current_timesteps
+    else:
+        model = PPO("MultiInputPolicy", env, verbose=1, tensorboard_log=str(tensorboard_dir), device='cpu')
+
+    # model.learn(total_timesteps=20_000_000, callback=checkpoint_callback, progress_bar=True)
+    model.learn(total_timesteps=20_000_000, callback=checkpoint_callback,
+                progress_bar=True, reset_num_timesteps=False)
 
     model.save(run_folder / 'ppo_marl')
 
@@ -136,7 +147,7 @@ def eval_loop(env, run_folder, checkpoint_num=40):
 
 # Example usage
 if __name__ == "__main__":
-    run_name = 'marl_timeline'
+    run_name = 'marl_timeline2'
     profile = 'train'
     run_type = 'train'
     render_mode = None
