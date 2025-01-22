@@ -10,7 +10,7 @@ from stable_baselines3.common.monitor import Monitor
 import numpy as np
 import matplotlib.pyplot as plt
 
-from micro_gym import MicroEnv, pid_loop
+from micro_gym import MultiActionMicroEnv, pid_loop, MicroEnv
 
 
 def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
@@ -151,11 +151,18 @@ def main(args):
                   'reward_mode': args.reward,
                   'scale_graphs': True,
                   }
-    eval_env = MicroEnv(**run_kwargs)
+    match args.env_type:
+        case 'micro':
+            environment = MicroEnv
+        case 'multi':
+            environment = MultiActionMicroEnv
+        case _:
+            raise ValueError(f"Invalid env_type: {args.env_type}")
+    eval_env = environment(**run_kwargs)
 
     if args.run_type == 'train':
         tensorboard_dir = f'./runs/{run_name}/logs/'
-        vec_env = make_vec_env(MicroEnv, n_envs=args.num_envs,
+        vec_env = make_vec_env(environment, n_envs=args.num_envs,
                                env_kwargs=run_kwargs)
         vec_env = VecMonitor(vec_env,
                              filename=f'./runs/{run_name}/logs/vec')
@@ -214,6 +221,8 @@ if __name__ == '__main__':
                         help='optimal, frugal, or sleepy')
     parser.add_argument('--profile', type=str, default='train',
                         help='train, test, longtest, power0, xe20, xe20power0')
+    parser.add_argument('--env_type', type=str, default='micro',
+                        help='micro, multi')
     
     args = parser.parse_args()
     main(args)
