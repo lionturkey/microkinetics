@@ -427,6 +427,60 @@ def random_desired_profile(length=200, hardcoded=False):
     return desired_profile
 
 
+class MultiActionMicroEnv(gym.Env):
+    metadata = {
+        "render_modes": ["human", "rgb_array"],
+        "render_fps": 15,
+    }
+
+    def __init__(self, dt=0.1, episode_length=200, render_mode=None, run_name=None, 
+                 debug=False, scale_graphs=False, run_mode="train", noise=0.0,
+                 profile='train', reward_mode='optimal'):
+        # Initialize the base MicroEnv
+        self.micro_env = MicroEnv(
+            dt=dt,
+            episode_length=episode_length,
+            render_mode=render_mode,
+            run_name=run_name,
+            debug=debug,
+            scale_graphs=scale_graphs,
+            run_mode=run_mode,
+            noise=noise,
+            profile=profile,
+            reward_mode=reward_mode
+        )
+
+        # Define action space as 8 identical control drums
+        # Each drum has same range as original MicroEnv (-1 to 1)
+        self.action_space = gym.spaces.Box(
+            low=-1,
+            high=1,
+            shape=(8,),
+            dtype=np.float32
+        )
+
+        # Observation space remains the same as MicroEnv
+        self.observation_space = self.micro_env.observation_space
+
+    def reset(self, seed=None, options=None):
+        return self.micro_env.reset(seed=seed, options=options)
+
+    def step(self, action):
+        # Combine the 8 control drum actions by averaging them
+        combined_action = np.mean(action)
+        # Ensure the combined action stays within bounds
+        combined_action = np.clip(combined_action, -1, 1)
+        
+        # Pass the combined action to the base environment
+        return self.micro_env.step(np.array([combined_action]))
+
+    def render(self):
+        return self.micro_env.render()
+
+    def close(self):
+        return self.micro_env.close()
+
+
 def pid_loop(env):
     # create a microreactor simulator and a PID controller
     pid = PIDController()
