@@ -27,7 +27,7 @@ def create_gif(run_name: str, png_folder: Path = (Path.cwd() / 'runs')):
             filepath.unlink()
 
 
-def control_loop(model, env, render=False):
+def control_loop(model, env, render=False, verbose=False):
     # TODO: add gif capability
     obs, _ = env.reset()
     episode_reward = 0
@@ -36,11 +36,14 @@ def control_loop(model, env, render=False):
     done = False
     while not done:
         gym_action, _states = model.predict(obs, deterministic=True)
+        # gym_action, _states = model.predict(obs)
         obs, reward, terminated, truncated, _ = env.step(gym_action)
         episode_reward += reward
         episode_length += 1
         if terminated or truncated:
             done = True
+        if verbose:
+            print(f"Action: {gym_action}, Reward: {reward}, Terminated: {terminated}, Truncated: {truncated}")
 
     if render:
         env.render()
@@ -169,11 +172,13 @@ def main(args):
         if latest_model:
             model = sb3.PPO.load(latest_model, env=vec_env, verbose=1,
                                  n_steps=args.nsteps,
-                                 tensorboard_log=tensorboard_dir)
+                                 tensorboard_log=tensorboard_dir,
+                                 device='cpu')
         else:
             model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
                             n_steps=args.nsteps,
-                            tensorboard_log=tensorboard_dir)
+                            tensorboard_log=tensorboard_dir,
+                            device='cpu')
 
         model.num_timesteps = pretrained_timesteps
         eval_env = Monitor(eval_env, filename=f'./runs/{run_name}/logs/eval')
@@ -183,7 +188,7 @@ def main(args):
                                         deterministic=True,
                                         eval_freq=4000)
 
-        model.learn(total_timesteps=args.num_timesteps, callback=eval_callback,
+        model.learn(total_timesteps=args.num_timesteps, #callback=eval_callback,
                     reset_num_timesteps=False, progress_bar=True)
         model.save(f'./runs/{run_name}/{model.num_timesteps}.zip')
         post_process(run_folder)
@@ -198,7 +203,7 @@ def main(args):
     # Load best model
     if best_model:
         ppo_controller = sb3.PPO.load(best_model)
-        reward, length = control_loop(ppo_controller, eval_env, render=True)
+        reward, length = control_loop(ppo_controller, eval_env, render=True, verbose=args.verbose)
         print(f'Episode reward: {reward}')
         print(f'Episode length: {length}')
     else:
@@ -223,6 +228,8 @@ if __name__ == '__main__':
                         help='train, test, longtest, power0, xe20, xe20power0')
     parser.add_argument('--env_type', type=str, default='micro',
                         help='micro, multi')
+    parser.add_argument('--verbose', type=bool, default=False,
+                        help='Whether to print action and reward')
     
     args = parser.parse_args()
     main(args)
