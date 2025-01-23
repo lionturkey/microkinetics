@@ -4,7 +4,7 @@ import shutil
 import argparse
 import stable_baselines3 as sb3
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3.common.monitor import Monitor
 import numpy as np
@@ -187,8 +187,10 @@ def main(args):
                                         log_path=f'./runs/{run_name}/logs/',
                                         deterministic=True,
                                         eval_freq=4000)
+        checkpoint_callback = CheckpointCallback(save_freq=10_000, save_path=str(run_folder),
+                                                 name_prefix='ppo')
 
-        model.learn(total_timesteps=args.num_timesteps, #callback=eval_callback,
+        model.learn(total_timesteps=args.num_timesteps, callback=checkpoint_callback,
                     reset_num_timesteps=False, progress_bar=True)
         model.save(f'./runs/{run_name}/{model.num_timesteps}.zip')
         post_process(run_folder)

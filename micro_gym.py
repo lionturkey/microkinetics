@@ -435,7 +435,7 @@ class MultiActionMicroEnv(gym.Env):
 
     def __init__(self, dt=0.1, episode_length=200, render_mode=None, run_name=None, 
                  debug=False, scale_graphs=False, run_mode="train", noise=0.0,
-                 profile='train', reward_mode='optimal'):
+                 profile='train', reward_mode='optimal', max_masks=3, min_masks=0):
         # Initialize the base MicroEnv
         self.micro_env = MicroEnv(
             dt=dt,
@@ -461,18 +461,43 @@ class MultiActionMicroEnv(gym.Env):
 
         # Observation space remains the same as MicroEnv
         self.observation_space = self.micro_env.observation_space
+        
+        # Random mask parameters
+        self.max_masks = max_masks
+        self.min_masks = min_masks
+        self.masks = np.ones(8)
 
     def reset(self, seed=None, options=None):
-        return self.micro_env.reset(seed=seed, options=options)
+        
+        obs, info = self.micro_env.reset(seed=seed, options=options)
+        
+        # Reset masks to all enabled
+        self.masks = np.ones(8)
+        
+        # Randomly disable some drums
+        num_masks = np.random.randint(self.min_masks, self.max_masks + 1)
+        disabled_indices = np.random.choice(8, size=num_masks, replace=False)
+        self.masks[disabled_indices] = 0
+        
+        info["masks"] = self.masks
+        return obs, info
 
     def step(self, action):
-        # Combine the 8 control drum actions by averaging them
-        combined_action = np.mean(action)
+        # Apply masks and combine the 8 control drum actions by averaging enabled drums
+        masked_action = action * self.masks
+        combined_action = np.sum(masked_action) / 8
+        
         # Ensure the combined action stays within bounds
         combined_action = np.clip(combined_action, -1, 1)
         
         # Pass the combined action to the base environment
-        return self.micro_env.step(np.array([combined_action]))
+        obs, reward, terminated, truncated, info = self.micro_env.step(np.array([combined_action]))
+        # Incentivize equal actions by subtracting the standard deviation of the masked actions
+        std_dev = np.std(masked_action)
+        reward -= std_dev
+        
+        info["masks"] = self.masks
+        return obs, reward, terminated, truncated, info
 
     def render(self):
         return self.micro_env.render()
