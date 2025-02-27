@@ -148,13 +148,23 @@ def eval_loop(env, run_folder, checkpoint_num=40):
 # Example usage
 if __name__ == "__main__":
     run_name = 'marl_timeline2'
-    profile = 'train'
-    run_type = 'train'
+    # profile = 'train'
+    profile = 'test'
+    # run_type = 'train'
+    run_type = 'eval'
     render_mode = None
     checkpoint_num = 40
     # render_mode = 'human'
     # run_type = 'eval'
-    env = MARLMicroEnv(run_name=run_name, profile=profile, render_mode=render_mode)
+
+    bad_drums = 4
+    if bad_drums >= 0:
+        min_masks = bad_drums
+        max_masks = bad_drums
+    else:
+        min_masks = 0
+        max_masks = 3
+    env = MARLMicroEnv(run_name=run_name, profile=profile, render_mode=render_mode, min_masks=min_masks, max_masks=max_masks)
 
     run_folder = Path.cwd() / 'runs' / run_name
     run_folder.mkdir(exist_ok=True, parents=True)

@@ -159,6 +159,9 @@ def main(args):
             environment = MicroEnv
         case 'multi':
             environment = MultiActionMicroEnv
+            if args.bad_drums >= 0:
+                run_kwargs['min_masks'] = args.bad_drums
+                run_kwargs['max_masks'] = args.bad_drums
         case _:
             raise ValueError(f"Invalid env_type: {args.env_type}")
     eval_env = environment(**run_kwargs)
@@ -232,6 +235,8 @@ if __name__ == '__main__':
                         help='micro, multi')
     parser.add_argument('--verbose', type=bool, default=False,
                         help='Whether to print action and reward')
+    parser.add_argument('--bad_drums', type=int, default=-1,
+                        help='Number of bad drums to inject')
     
     args = parser.parse_args()
     main(args)

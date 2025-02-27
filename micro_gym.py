@@ -1,6 +1,7 @@
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
+import pandas as pd
 from pathlib import Path
 from controllers import PIDController
 
@@ -97,7 +98,9 @@ class MicroEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super(self.__class__, self).reset(seed=seed)
         # self.desired_profile = random_desired_profile()
-        self.desired_profile = random_desired_profile(hardcoded=True)
+        profile = 'train' if self.profile == 'train' else 'test'
+        fac = self.episode_length / 200
+        self.desired_profile = random_desired_profile(hardcoded=True, profile=profile, fac=fac)
         initial_power = self.desired_profile(0)
         self.n_r = initial_power / 100
         self.precursor_concentrations = np.array([self.n_r] * 6)
@@ -208,9 +211,9 @@ class MicroEnv(gym.Env):
             acceptable_error = 10
 
         terminated = False
-        if diff > acceptable_error:
-            reward = -100
-            terminated = True
+        # if diff > acceptable_error:
+        #     reward = -100
+        #     terminated = True
 
         return reward, terminated
 
@@ -277,9 +280,26 @@ class MicroEnv(gym.Env):
         plt.tight_layout()
         # plt.pause(.001)  # a vestige from the video era
         if self.run_name:
-            fig_name = (f'runs/{self.run_name}/{self.run_mode}-mode_'
+            base_name = (f'runs/{self.run_name}/{self.run_mode}-mode_'
                         f'{self.noise}-noise_{self.profile}-profile_'
-                        f'{self.reward_mode}-reward_{self.time}.png')
+                        f'{self.reward_mode}-reward_{self.time}')
+
+            df = pd.DataFrame({
+                'desired_power': [100] + [self.desired_profile(t) for t in range(self.episode_length)],
+                'actual_power': self.power_history,
+                'diff': self.diff_history,
+                'action': self.action_history,
+                'fuel_temp': self.fuel_temp_history,
+                'moderator_temp': self.moderator_temp_history,
+                'coolant_temp': self.coolant_temp_history,
+                'drum': self.drum_history,
+                'Xe': self.Xe_history,
+                'I': self.I_history,
+            })
+            df.to_csv(f'{base_name}.csv', index=False)
+            
+
+            fig_name = (f'{base_name}.png')
             plt.savefig(fig_name)
 
 
@@ -372,26 +392,20 @@ class MicroEnv(gym.Env):
 fac = 1
 # fac = 360
 # fac = 2880
-hardcoded_cutoffs = [
-    # [10, 50, 80, 130, 165],
-    [30, 45, 77, 128, 160],
-    # [10, 53, 72, 130, 187],
-    # [10, 50, 70, 150, 200],
-    # [10, 50, 70, 150, 200],
-]
 
-hardcoded_cutoffs = [[x * fac for x in hardcoded_cutoffs[0]]]
-hardcoded_values = [
-    # [100, 80, 70, 40, 80, 40],
-    # [100, 80, 70, 40, 70, 40],
-    [100, 80, 70, 50, 65, 90],
-    # [100, 80, 95, 70, 50, 65],
-    # [100, 40, 70, 40, 80, 40],
-    # [100, 40, 70, 40, 80, 40],
-    # [100, 40, 70, 40, 80, 40],
-]
 
-def random_desired_profile(length=200, hardcoded=False):
+cutoff_dict = {
+    'train': [30, 45, 77, 128, 160],
+    'test': [10, 53, 72, 130, 187],
+}
+
+values_dict = {
+    'train': [100, 80, 70, 50, 65, 90],
+    'test': [100, 80, 95, 70, 50, 65],
+}
+
+
+def random_desired_profile(length=200, hardcoded=False, fac=1, profile='train'):
     num_cutoffs = np.random.randint(3, 7)
     cutoffs = [int(x) for x in np.linspace(length/num_cutoffs, length, num_cutoffs, endpoint=False)]
     cutoffs += np.random.randint(-length//num_cutoffs//4, length//num_cutoffs//4, size=num_cutoffs)
@@ -401,8 +415,9 @@ def random_desired_profile(length=200, hardcoded=False):
 
     # # WARNING: hardcoded values
     if hardcoded:
-        cutoffs = np.array(hardcoded_cutoffs[0])
-        values = hardcoded_values[0]
+        cutoffs = np.array(cutoff_dict[profile])
+        cutoffs = cutoffs * fac
+        values = values_dict[profile]
 
     def desired_profile(t):
         flag_th = False
