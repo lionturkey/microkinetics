@@ -6,6 +6,65 @@ from pathlib import Path
 import microutils
 
 
+class HolosPK:
+    ######################
+    # Reactor parameters #
+    ######################
+    sigma_Xe = 2.6e-22  # xenon micro xsec m^2 according to random online sources
+    yield_I = 0.061  # yield iodine
+    yield_Xe = 0.002  # yield xenon
+    lambda_Xe = 2.09e-5  # decay of xenon s^-1
+    lambda_I = 2.87e-5  # decay of iodine s^-1
+    # Kamal used 0.3358, but working backwards from estimated values in Choi 2020 p. 28 Fig.15c:
+    Sigma_f = 0.1117  # macro xsec fission m^-1
+    therm_n_vel = 2.19e3  # thermal neutron velocity m/s according to Wikipedia on neutron temp lol (0.25 eV)
+    neutron_lifetime = 1.68e-3  # s
+    beta = 0.0048
+    betas = np.array([1.42481E-04, 9.24281E-04, 7.79956E-04, 2.06583E-03, 6.71175E-04, 2.17806E-04])
+    lambdas = np.array([1.272E-02, 3.174E-02, 1.160E-01, 3.110E-01, 1.400E+00, 3.870E+00])
+
+    # table 2 in Choi 2020
+    cp_f = 977  # specific heat of fuel
+    cp_m = 1697  # specific heat of moderator
+    cp_c = 5188.6  # specific heat of coolant
+    M_f = 2002  # mass of fuel
+    M_m = 11573  # mass of moderator
+    M_c = 500  # mass of coolant
+    heat_f = 0.96  # q in paper, fraction of heat deposited in fuel
+    Tf0 = 832.4
+    Tm0 = 830.22  # MPACT paper
+    T_in = 795.47  # computed to make initial conditions at steady state
+    T_out = 1106  # sooyoung's code
+    Tc0 = 814.35  # computed to make initial conditions at steady state
+    K_fm = 1.17e6  # W/K
+    K_mc = 2.16e5  # W/K
+    M_dot = 1.75E+01
+    alpha_f = -2.875e-5
+    alpha_m = -3.696e-5
+    alpha_c = 0.0
+    n_0 = 2.25e13  # m^-3
+    P_r = 22e6  # rated power in Watts
+    u0 = 77.56  # degrees, steady state full power drum angle
+    I0 = yield_I * Sigma_f * therm_n_vel * n_0 / lambda_I
+    Xe0 = ((yield_Xe * Sigma_f * therm_n_vel * n_0
+            + lambda_I * I0)
+           / (lambda_Xe
+              + sigma_Xe * therm_n_vel * n_0))
+
+    def __init__(self):
+        pass
+    
+    def reset(self):
+        pass
+    
+    def reactor_dae(self, t, y, drum_rotation):
+        pass
+
+
+
+
+
+
 class HolosEnv(gym.Env):
     ######################
     # Reactor parameters #
@@ -91,7 +150,6 @@ class HolosEnv(gym.Env):
         self.Tc = self.Tc0
         self.rho_drum = 0
         self.rho = 0
-
         self.drum = 77.8
 
         next_desired_power = self.desired_profile(self.time + 1)
