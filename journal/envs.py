@@ -1,6 +1,7 @@
 from matplotlib.scale import InvertedSymmetricalLogTransform
 import numpy as np
 import gymnasium as gym
+from pettingzoo import ParallelEnv
 import matplotlib.pyplot as plt
 import pandas as pd
 from pathlib import Path
@@ -276,3 +277,6 @@ class HolosSingle(gym.Env):
 
     def render(self, mode='human'):
         self.env.render(mode=mode)
+
+
+# class HolosMARL(ParallelEnv):
