@@ -7,23 +7,23 @@ import microutils
 
 
 class HolosPK:
-    ######################
-    # Reactor parameters #
-    ######################
-    sigma_Xe = 2.6e-22  # xenon micro xsec m^2 according to random online sources
+    """Class representing the point kinetics equations
+        for the Holos-Quad microreactor"""
+    ##############################
+    # Default reactor parameters #
+    ##############################
+    # values mostly from table 2 inChoi 2020
+    sigma_Xe = 2.65e-22  # xenon micro xsec m^2 according to online sources
     yield_I = 0.061  # yield iodine
     yield_Xe = 0.002  # yield xenon
     lambda_Xe = 2.09e-5  # decay of xenon s^-1
     lambda_I = 2.87e-5  # decay of iodine s^-1
-    # Kamal used 0.3358, but working backwards from estimated values in Choi 2020 p. 28 Fig.15c:
-    Sigma_f = 0.1117  # macro xsec fission m^-1
-    therm_n_vel = 2.19e3  # thermal neutron velocity m/s according to Wikipedia on neutron temp lol (0.25 eV)
+    Sigma_f = 0.1117  # macro xsec fission m^-1, worked out backwards from estimated values in Choi 2020 p. 28 Fig.15c
+    therm_n_vel = 2.19e3  # thermal neutron velocity m/s according to Wikipedia on neutron temp (0.25 eV)
     neutron_lifetime = 1.68e-3  # s
-    beta = 0.0048
+    beta = 0.004801
     betas = np.array([1.42481E-04, 9.24281E-04, 7.79956E-04, 2.06583E-03, 6.71175E-04, 2.17806E-04])
     lambdas = np.array([1.272E-02, 3.174E-02, 1.160E-01, 3.110E-01, 1.400E+00, 3.870E+00])
-
-    # table 2 in Choi 2020
     cp_f = 977  # specific heat of fuel
     cp_m = 1697  # specific heat of moderator
     cp_c = 5188.6  # specific heat of coolant
@@ -38,90 +38,97 @@ class HolosPK:
     Tc0 = 814.35  # computed to make initial conditions at steady state
     K_fm = 1.17e6  # W/K
     K_mc = 2.16e5  # W/K
-    M_dot = 1.75E+01
+    M_dot = 17.5  # kg/s
     alpha_f = -2.875e-5
     alpha_m = -3.696e-5
     alpha_c = 0.0
     n_0 = 2.25e13  # m^-3
     P_r = 22e6  # rated power in Watts
-    u0 = 77.56  # degrees, steady state full power drum angle
-    I0 = yield_I * Sigma_f * therm_n_vel * n_0 / lambda_I
-    Xe0 = ((yield_Xe * Sigma_f * therm_n_vel * n_0
-            + lambda_I * I0)
-           / (lambda_Xe
-              + sigma_Xe * therm_n_vel * n_0))
+    u0 = 77.5  # degrees, steady state full power drum angle (77.56 earlier)
+    rho_max = .00500  # max reactivity per drum pcm
 
     def __init__(self):
-        pass
-    
-    def reset(self):
-        pass
-    
-    def reactor_dae(self, t, y, drum_rotation):
-        pass
+        # calculate steady state conditions and drum reactivity
+        self.rho_ss = self.rho_max * (1 - np.cos(np.deg2rad(self.u0))) / 2
+        self.I0 = self.yield_I * self.Sigma_f * self.therm_n_vel * self.n_0 / self.lambda_I
+        self.Xe0 = ((self.yield_Xe * self.Sigma_f * self.therm_n_vel * self.n_0
+                     + self.lambda_I * self.I0)
+                    / (self.lambda_Xe
+                       + self.sigma_Xe * self.therm_n_vel * self.n_0))
 
+    def get_initial_conditions(self):
+        n_r = 1
+        c1, c2, c3, c4, c5, c6 = [n_r] * 6
+        Tf = self.Tf0
+        Tm = self.Tm0
+        Tc = self.Tc0
+        Xe = self.Xe0
+        I = self.I0
 
+        return [n_r, c1, c2, c3, c4, c5, c6, Tf, Tm, Tc, Xe, I]
 
+    def calc_reactivity(self, y, drum_angles):
+        _, _, _, _, _, _, _, Tf, Tm, _, Xe, _ = y
 
+        drum_reactivity = np.sum(self.rho_max * (1 - np.cos(np.deg2rad(drum_angles))) / 2 - self.rho_ss)
+
+        rho = (drum_reactivity
+               + self.alpha_f * (Tf - self.Tf0)
+               + self.alpha_m * (Tm - self.Tm0)
+               - self.sigma_Xe * (Xe - self.Xe0) / self.Sigma_f)
+
+        return rho
+
+    def reactor_dae(self, t, y, d1, d2, d3, d4, d5, d6, d7, d8):
+        # 12 values for: power, precursors (x6), temperatures (x3), xenon, iodine
+        n_r, c1, c2, c3, c4, c5, c6, Tf, Tm, Tc, Xe, I = y
+
+        drum_angles = np.array([d1, d2, d3, d4, d5, d6, d7, d8])
+
+        rho = self.calc_reactivity(y, drum_angles)
+        precursor_concentrations = np.array([c1, c2, c3, c4, c5, c6])
+
+        # Kinetics equations with six-delayed neutron groups        
+        d_n_r = (((rho - self.beta) * n_r
+                  + np.sum(self.betas * precursor_concentrations))
+                 / self.neutron_lifetime)
+        d_c1, d_c2, d_c3, d_c4, d_c5, d_c6 = (self.lambdas * n_r
+                                              - self.lambdas * precursor_concentrations)
+
+        # Thermal–hydraulics model of the reactor core
+        d_Tf = ((self.heat_f * self.P_r * n_r
+                 - self.K_fm * (Tf - Tc))
+                / (self.M_f * self.cp_f))
+        
+        d_Tm = (((1 - self.heat_f) * self.P_r * n_r
+                 + self.K_fm * (Tf - Tm)
+                 - self.K_mc * (Tm - Tc))
+                / (self.M_m * self.cp_m))
+        d_Tc = ((self.K_mc * (Tm - Tc)
+                 - 2*self.M_dot * self.cp_c * (Tc - self.T_in))
+                / (self.M_c * self.cp_c))
+
+        # Xenon and Iodine dynamics
+        n_rate_density = self.therm_n_vel * self.n_0 * n_r
+        d_I = (self.yield_I * self.Sigma_f * n_rate_density
+               - self.lambda_I * I)
+        d_Xe = (self.yield_Xe * self.Sigma_f * n_rate_density
+                + self.lambda_I * I
+                - self.lambda_Xe * Xe
+                - self.sigma_Xe * Xe * n_rate_density)
+
+        return [d_n_r, d_c1, d_c2, d_c3, d_c4, d_c5, d_c6, d_Tf, d_Tm, d_Tc, d_Xe, d_I]
 
 
 class HolosEnv(gym.Env):
-    ######################
-    # Reactor parameters #
-    ######################
-    sigma_Xe = 2.6e-22  # xenon micro xsec m^2 according to random online sources
-    yield_I = 0.061  # yield iodine
-    yield_Xe = 0.002  # yield xenon
-    lambda_Xe = 2.09e-5  # decay of xenon s^-1
-    lambda_I = 2.87e-5  # decay of iodine s^-1
-    # Kamal used 0.3358, but working backwards from estimated values in Choi 2020 p. 28 Fig.15c:
-    Sigma_f = 0.1117  # macro xsec fission m^-1
-    therm_n_vel = 2.19e3  # thermal neutron velocity m/s according to Wikipedia on neutron temp lol (0.25 eV)
-    neutron_lifetime = 1.68e-3  # s
-    beta = 0.0048
-    betas = np.array([1.42481E-04, 9.24281E-04, 7.79956E-04, 2.06583E-03, 6.71175E-04, 2.17806E-04])
-    lambdas = np.array([1.272E-02, 3.174E-02, 1.160E-01, 3.110E-01, 1.400E+00, 3.870E+00])
-
-    # table 2 in Choi 2020
-    cp_f = 977  # specific heat of fuel
-    cp_m = 1697  # specific heat of moderator
-    cp_c = 5188.6  # specific heat of coolant
-    M_f = 2002  # mass of fuel
-    M_m = 11573  # mass of moderator
-    M_c = 500  # mass of coolant
-    heat_f = 0.96  # q in paper, fraction of heat deposited in fuel
-    Tf0 = 832.4
-    Tm0 = 830.22  # MPACT paper
-    T_in = 795.47  # computed to make initial conditions at steady state
-    T_out = 1106  # sooyoung's code
-    Tc0 = 814.35  # computed to make initial conditions at steady state
-    K_fm = 1.17e6  # W/K
-    K_mc = 2.16e5  # W/K
-    M_dot = 1.75E+01
-    alpha_f = -2.875e-5
-    alpha_m = -3.696e-5
-    alpha_c = 0.0
-    n_0 = 2.25e13  # m^-3
-    P_r = 22e6  # rated power in Watts
-    reactivity_per_degree = 26.11e-5
-    u0 = 77.56  # degrees, steady state full power drum angle
-    I0 = yield_I * Sigma_f * therm_n_vel * n_0 / lambda_I
-    Xe0 = ((yield_Xe * Sigma_f * therm_n_vel * n_0
-            + lambda_I * I0)
-           / (lambda_Xe
-              + sigma_Xe * therm_n_vel * n_0))
-
-
-    def __init__(self, profile, episode_length=200, run_name=None,
+    def __init__(self, run_name, profile, episode_length,
                  run_mode="train", noise=0.0, debug=False):
+        self.run_name = run_name
         self.profile = profile
         self.episode_length = episode_length
-        self.run_name = run_name
-        self.debug = debug
         self.run_mode = run_mode
         self.noise = noise
-
-        self.dt = 0.1  # simulation timestep size in seconds
+        self.debug = debug
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
@@ -263,64 +270,4 @@ class HolosEnv(gym.Env):
     def convert_action_to_gym(self, action):
         """Convert from the real -0.5 to 0.5 to the 0 1 continuous gym action space"""
         return action * 2
-
-
-    def reactor_dae(self, drum_rotation):
-        self.rho_drum += drum_rotation * self.reactivity_per_degree
-
-        # ODEs
-        rho = (self.rho_drum
-               + self.alpha_f * (self.Tf - self.Tf0)
-               + self.alpha_m * (self.Tm - self.Tm0)
-                - self.sigma_Xe * (self.Xe - self.Xe0) / self.Sigma_f)
-        self.rho = rho
-
-        # Kinetics equations with six-delayed neutron groups        
-        d_n_r = (((rho - self.beta) * self.n_r
-                  + np.sum(self.betas * self.precursor_concentrations))
-                 / self.neutron_lifetime)
-        d_precursor_concentrations = (self.lambdas * self.n_r
-                                      - self.lambdas * self.precursor_concentrations)
-        
-        # Xenon and Iodine dynamics
-        n_rate_density = self.therm_n_vel * self.n_0 * self.n_r
-        d_iodine = (self.yield_I * self.Sigma_f * n_rate_density
-                    - self.lambda_I * self.I)
-        d_xenon = (self.yield_Xe * self.Sigma_f * n_rate_density
-                   + self.lambda_I * self.I
-                   - self.lambda_Xe * self.Xe
-                   - self.sigma_Xe * self.Xe * n_rate_density)
-
-        # Thermal–hydraulics model of the reactor core
-        d_fuel_temp = ((self.heat_f * self.P_r * self.n_r
-                        - self.K_fm * (self.Tf - self.Tc))
-                       / (self.M_f * self.cp_f))
-        
-        d_moderator_temp = (((1 - self.heat_f) * self.P_r * self.n_r
-                             + self.K_fm * (self.Tf - self.Tm)
-                             - self.K_mc * (self.Tm - self.Tc))
-                            / (self.M_m * self.cp_m))
-        d_coolant_temp = ((self.K_mc * (self.Tm - self.Tc)
-                           - 2*self.M_dot * self.cp_c * (self.Tc - self.T_in))
-                          / (self.M_c * self.cp_c))
-
-        if self.debug:
-            print('##########################')
-            print('######next dae iter#######')
-            print('##########################')
-            print(f'd_n_r {d_n_r}')
-            print(f'd_precursor_concentrations {d_precursor_concentrations}')
-            print(f'd_fuel_temp {d_fuel_temp}')
-            print(f'd_moderator_temp {d_moderator_temp}')
-            print(f'd_coolant_temp {d_coolant_temp}')
-            print(f'power {self.power_history[-1]}')
-
-        self.n_r += d_n_r * self.dt
-        self.precursor_concentrations += d_precursor_concentrations  * self.dt
-        self.Xe += d_xenon  * self.dt
-        self.I += d_iodine * self.dt
-        self.Tf += d_fuel_temp * self.dt
-        self.Tm += d_moderator_temp  * self.dt
-        self.Tc += d_coolant_temp  * self.dt
-
 
