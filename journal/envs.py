@@ -49,7 +49,7 @@ class HolosPK:
     n_0 = 2.25e13  # m^-3
     P_r = 22e6  # rated power in Watts
     u0 = 77.8  # degrees, steady state full power drum angle (77.56 earlier)
-    rho_max = .00500  # max reactivity per drum (500 pcm)
+    rho_max = .00511  # max reactivity per drum (511 pcm)
 
     def __init__(self):
         # calculate steady state conditions and drum reactivity
@@ -132,13 +132,15 @@ class HolosPK:
 
 class HolosMulti(gym.Env):
     def __init__(self, profile, episode_length, run_path=None,
-                 run_mode="train", noise=0.0, debug=False):
+                 run_mode="train", noise=0.0, debug=False,
+                 valid_maskings=(0,)):
         self.profile = profile
         self.episode_length = episode_length
         self.run_path = run_path
         self.run_mode = run_mode
         self.noise = noise
         self.debug = debug
+        self.valid_maskings = valid_maskings
 
         self.pke = HolosPK()
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
@@ -158,6 +160,11 @@ class HolosMulti(gym.Env):
         self.y = self.pke.get_initial_conditions()
         current_power, *_ = self.y
         self.history = [[self.time, *self.drum_angles, current_desired_power, *self.y]]
+
+        num_masks = np.random.choice(self.valid_maskings)
+        self.masks = np.ones(8)
+        mask_indices = np.random.choice(8, size=num_masks, replace=False)
+        self.masks[mask_indices] = 0
 
         next_desired_power = self.profile(self.time + 1)
         fuzz = np.random.normal(0, self.noise)
@@ -182,7 +189,7 @@ class HolosMulti(gym.Env):
     def step(self, action):
         if self.time >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
-        real_action = self.gym2real_action(action)
+        real_action = self.gym2real_action(action) * self.masks
 
         drum_forcers = self.drum_forcers(self.drum_angles, real_action)
         sol = solve_ivp(self.pke.reactor_dae, [0, 1], self.y, args=drum_forcers)
@@ -246,8 +253,9 @@ class HolosMulti(gym.Env):
 
 class HolosSingle(gym.Env):
     def __init__(self, profile, episode_length, run_path=None,
-                 run_mode="train", noise=0.0, debug=False):
-        self.env = HolosMulti(profile, episode_length, run_path, run_mode, noise, debug)
+                 run_mode="train", noise=0.0, debug=False,
+                 valid_maskings=(0,)):
+        self.env = HolosMulti(profile, episode_length, run_path, run_mode, noise, debug, valid_maskings)
 
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
@@ -279,4 +287,67 @@ class HolosSingle(gym.Env):
         self.env.render(mode=mode)
 
 
-# class HolosMARL(ParallelEnv):
+class HolosMARL(ParallelEnv):
+    def __init__(self, profile, episode_length, run_path=None,
+                 run_mode="train", noise=0.0, debug=False,
+                 valid_maskings=(0,)):
+        super().__init__()
+        self.env = HolosMulti(profile, episode_length, run_path, run_mode, noise, debug, valid_maskings)
+        self.agents = [f"agent_{i}" for i in range(8)]  # 8 control drums
+
+        # Each agent represents one out of the eight control drums
+        self._action_spaces = {
+            agent: Box(low=-1, high=1, shape=(1,), dtype=np.float32)
+            for agent in self.agents
+        }
+
+        # Each agent gets the same observations
+        self._observation_spaces = {
+            agent: gym.spaces.Dict({
+                "drum_angle": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+                "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+                "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            })
+            for agent in self.agents
+        }
+
+    def observation_space(self, agent):
+        return self._observation_spaces[agent]
+
+    def action_space(self, agent):
+        return self._action_spaces[agent]
+
+    def reset(self, seed=None, options=None):
+        self.agents = self.possible_agents[:]
+        obs, info = self.env.reset(seed=seed)
+
+        observations = {agent: obs.copy() for agent in self.agents}
+        for agent in self.agents:
+            observations[agent]["drum_angle"] = np.array(obs["drum_angles"][agent])
+        infos = {agent: info for agent in self.agents}
+
+        return observations, infos
+
+    def step(self, actions):
+        # Combine actions from all agents
+        action = np.array([actions[agent].item() for agent in self.agents])
+
+        # Step the environment with combined action
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        # Distribute observations, rewards, and other info to all agents
+        observations = {agent: obs.copy() for agent in self.agents}
+        for agent in self.agents:
+            observations[agent]["drum_angle"] = np.array(obs["drum_angles"][agent])
+        rewards = {agent: (reward / 8) for agent in self.agents}
+        terminations = {agent: terminated for agent in self.agents}
+        truncations = {agent: truncated for agent in self.agents}
+        infos = {agent: info for agent in self.agents}
+
+        return observations, rewards, terminations, truncations, infos
+
+    def render(self):
+        return self.env.render()
+
+    def close(self):
+        self.env.close()
