@@ -1,8 +1,11 @@
+from matplotlib.scale import InvertedSymmetricalLogTransform
 import numpy as np
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import pandas as pd
 from pathlib import Path
+from scipy.integrate import solve_ivp
+from scipy.interpolate import interp1d
 import microutils
 
 
@@ -44,8 +47,8 @@ class HolosPK:
     alpha_c = 0.0
     n_0 = 2.25e13  # m^-3
     P_r = 22e6  # rated power in Watts
-    u0 = 77.5  # degrees, steady state full power drum angle (77.56 earlier)
-    rho_max = .00500  # max reactivity per drum pcm
+    u0 = 77.8  # degrees, steady state full power drum angle (77.56 earlier)
+    rho_max = .00500  # max reactivity per drum (500 pcm)
 
     def __init__(self):
         # calculate steady state conditions and drum reactivity
@@ -79,12 +82,18 @@ class HolosPK:
 
         return rho
 
+    def drum_forcing(self, drum_angles, drum_action, time = 1):
+        """Create a drum angle forcer for intermediate timesteps during a solve_ivp"""
+        drum_forcers = []
+        for i, drum_angle in enumerate(drum_angles):
+            drum_forcers.append(interp1d([0, time], [drum_angle, drum_angle + drum_action[i]]))
+
+        return drum_forcers
+
     def reactor_dae(self, t, y, d1, d2, d3, d4, d5, d6, d7, d8):
-        # 12 values for: power, precursors (x6), temperatures (x3), xenon, iodine
+        # note that d1, ..., d8 are expected to be functions of time
         n_r, c1, c2, c3, c4, c5, c6, Tf, Tm, Tc, Xe, I = y
-
-        drum_angles = np.array([d1, d2, d3, d4, d5, d6, d7, d8])
-
+        drum_angles = np.array([d1(t), d2(t), d3(t), d4(t), d5(t), d6(t), d7(t), d8(t)])
         rho = self.calc_reactivity(y, drum_angles)
         precursor_concentrations = np.array([c1, c2, c3, c4, c5, c6])
 
@@ -120,124 +129,92 @@ class HolosPK:
         return [d_n_r, d_c1, d_c2, d_c3, d_c4, d_c5, d_c6, d_Tf, d_Tm, d_Tc, d_Xe, d_I]
 
 
-class HolosEnv(gym.Env):
-    def __init__(self, run_name, profile, episode_length,
+class HolosMulti(gym.Env):
+    def __init__(self, profile, episode_length, run_path=None,
                  run_mode="train", noise=0.0, debug=False):
-        self.run_name = run_name
         self.profile = profile
         self.episode_length = episode_length
+        self.run_path = run_path
         self.run_mode = run_mode
         self.noise = noise
         self.debug = debug
 
+        self.pke = HolosPK()
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
-            "last_action": gym.spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32),
+            "drum_angles": gym.spaces.Box(low=0, high=1, shape=(8,), dtype=np.float32),
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
             
         self.reset()
 
-
     def reset(self, seed=None, options=None):
         super(self.__class__, self).reset(seed=seed)
-        # self.desired_profile = random_desired_profile()
-        profile = 'train' if self.profile == 'train' else 'test'
-        fac = self.episode_length / 200
-        self.desired_profile = random_desired_profile(hardcoded=True, profile=profile, fac=fac)
-        initial_power = self.desired_profile(0)
-        self.n_r = initial_power / 100
-        self.precursor_concentrations = np.array([self.n_r] * 6)
+        current_desired_power = self.profile(0) / 100
         self.time = 0
-        self.Xe = self.Xe0
-        self.I = self.I0
-        self.Tf = self.Tf0
-        self.Tm = self.Tm0
-        self.Tc = self.Tc0
-        self.rho_drum = 0
-        self.rho = 0
-        self.drum = 77.8
+        self.drum_angles = np.array([77.8]*8)
+        self.y = self.pke.get_initial_conditions()
+        current_power, *_ = self.y
+        self.history = [[self.time, *self.drum_angles, current_desired_power, *self.y]]
 
-        next_desired_power = self.desired_profile(self.time + 1)
+        next_desired_power = self.profile(self.time + 1)
         fuzz = np.random.normal(0, self.noise)
         observation = {
-            "last_action": np.array([0]),
-            "next_desired_power": np.array([next_desired_power/100]),
-            "power": np.array([self.n_r + fuzz]),
+            "drum_angles": self.drum_angles / 180,  # convert to 0 to 1 box space
+            "next_desired_power": np.array([next_desired_power / 100]),
+            "power": np.array([current_power + fuzz]),
         }
 
-        self.power_history = [initial_power]
-        self.fuel_temp_history = [self.Tf]
-        self.moderator_temp_history = [self.Tm]
-        self.coolant_temp_history = [self.Tc]
-        self.action_history = [0]
-        self.diff_history = [0]
-        self.drum_history = [self.drum]
-        self.Xe_history = [self.Xe]
-        self.I_history = [self.I]
+        return observation, {'latest': self.history[-1]}
 
-        return observation, {}
-
-
-    def convert_action(self, action):
+    def gym2real_action(self, gym_action):
         """Convert from the -1 to 1 box space to -0.5 to 0.5"""
-        if isinstance(action, float):
-            return action / 2
-        return action.item() / 2
+        real_action = gym_action.item() / 2
+        return real_action
 
+    def real2gym_action(self, real_action):
+        """Convert from the real -0.5 to 0.5 to the 0 1 continuous gym action space"""
+        gym_action = real_action * 2
+        return gym_action
 
     def step(self, action):
         if self.time >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
+        real_action = self.gym2real_action(action)
 
-        real_action = self.convert_action(action)
-
-        num_steps = int(1 / self.dt)
-        for _ in range(num_steps):
-            self.reactor_dae(real_action / num_steps, debug=self.debug)
+        drum_forcers = self.drum_forcers(self.drum_angles, real_action)
+        sol = solve_ivp(self.pke.reactor_dae, [0, 1], self.y, args=drum_forcers)
+        self.y = sol.y[:,-1]
+        self.drum_angles += real_action
         self.time += 1
 
-        current_power = self.n_r * 100
-        current_desired_power = self.desired_profile(self.time)
-        next_desired_power = self.desired_profile(self.time + 1)
-        this_action = self.convert_action_to_gym(real_action)
-        self.drum += real_action
+        current_power, *_ = self.y
+        self.history.append([self.time, *self.drum_angles, current_desired_power, *self.y])
+        next_desired_power = self.profile(self.time + 1)
         fuzz = np.random.normal(0, self.noise)
-
         observation = {
-            "last_action": np.array([this_action]),
-            "next_desired_power": np.array([next_desired_power/100]),
-            "power": np.array([self.n_r + fuzz]),
-        }        
-        reward, terminated = self.calc_reward(current_power)
+            "drum_angles": self.drum_angles / 180,  # convert to 0-1 box space
+            "next_desired_power": np.array([next_desired_power / 100]),  # convert to 0-1 box space
+            "power": np.array([current_power + fuzz]),
+        }
+
+        desired_power = self.profile(self.time)
+        reward, terminated = self.calc_reward((current_power*100), desired_power)
         truncated = False
         if self.time >= self.episode_length:
             truncated = True
-        info = {}
-        
-        # add to histories
-        self.power_history.append(current_power)
-        self.fuel_temp_history.append(self.Tf)
-        self.moderator_temp_history.append(self.Tm)
-        self.coolant_temp_history.append(self.Tc)
-        self.action_history.append(real_action)
-        self.diff_history.append(current_desired_power - current_power)
-        self.drum_history.append(self.drum)
-        self.Xe_history.append(self.Xe)
-        self.I_history.append(self.I)
+        info = {'latest': self.history[-1]}
 
         return observation, reward, terminated, truncated, info
 
-
-    def calc_reward(self, power):
+    def calc_reward(self, current_power, desired_power):
         """Returns reward and whether the episode is terminated."""
         # First component: give reward to stay in the correct range
-        desired_power = self.desired_profile(self.time)
-        diff = abs(power - desired_power)
+        diff = abs(current_power - desired_power)
         reward = 2 - diff
 
-        # Third component: give a punish outside bounds if in train mode
+        # give a punish outside bounds if in train mode
         terminated = False
         if self.run_mode == "train" and diff > 5:
             reward -= 100
@@ -245,8 +222,7 @@ class HolosEnv(gym.Env):
 
         return reward, terminated
 
-
-    def render(self):
+    def render(self, mode='human'):
         if self.run_name:
             base_name = (f'runs/{self.run_name}/{self.run_mode}-mode_'
                         f'{self.noise}-noise_{self.profile}-profile_'
@@ -267,7 +243,36 @@ class HolosEnv(gym.Env):
             df.to_csv(f'{base_name}.csv', index=False)
 
 
-    def convert_action_to_gym(self, action):
-        """Convert from the real -0.5 to 0.5 to the 0 1 continuous gym action space"""
-        return action * 2
+class HolosSingle(gym.Env):
+    def __init__(self, profile, episode_length, run_path=None,
+                 run_mode="train", noise=0.0, debug=False):
+        self.env = HolosMulti(profile, episode_length, run_path, run_mode, noise, debug)
 
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
+        self.observation_space = gym.spaces.Dict({
+            "drum_angle": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+            "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+        })
+        self.env.reset()
+
+    def reset(self, seed=None, options=None):
+        obs, info = self.env.reset(seed=seed, options=options)
+        observation = {
+            "drum_angle": np.array(np.mean(obs["drum_angles"])),  # treat as a single drum angle
+            "next_desired_power": np.array([obs["next_desired_power"]]),
+            "power": np.array([obs["power"]]),
+        }
+        return observation, info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        observation = {
+            "drum_angle": np.array(np.mean(obs["drum_angles"])),  # treat as a single drum angle
+            "next_desired_power": np.array([obs["next_desired_power"]]),
+            "power": np.array([obs["power"]]),
+        }
+        return observation, reward, terminated, truncated, info
+
+    def render(self, mode='human'):
+        self.env.render(mode=mode)
