@@ -1,10 +1,10 @@
-from matplotlib.scale import InvertedSymmetricalLogTransform
+from pathlib import Path
+import time
 import numpy as np
 import gymnasium as gym
 from pettingzoo import ParallelEnv
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
 from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
 import microutils
@@ -54,6 +54,7 @@ class HolosPK:
     def __init__(self):
         # calculate steady state conditions and drum reactivity
         self.rho_ss = self.rho_max * (1 - np.cos(np.deg2rad(self.u0))) / 2
+        assert self.rho_ss < self.rho_max, 'steady state reactivity exceeds max reactivity'
         self.I0 = self.yield_I * self.Sigma_f * self.therm_n_vel * self.n_0 / self.lambda_I
         self.Xe0 = ((self.yield_Xe * self.Sigma_f * self.therm_n_vel * self.n_0
                      + self.lambda_I * self.I0)
@@ -75,7 +76,7 @@ class HolosPK:
         _, _, _, _, _, _, _, Tf, Tm, _, Xe, _ = y
 
         drum_reactivity = np.sum(self.rho_max * (1 - np.cos(np.deg2rad(drum_angles))) / 2 - self.rho_ss)
-
+        assert drum_reactivity < self.rho_max, 'drum reactivity exceeds max reactivity'
         rho = (drum_reactivity
                + self.alpha_f * (Tf - self.Tf0)
                + self.alpha_m * (Tm - self.Tm0)
@@ -89,6 +90,7 @@ class HolosPK:
         for i, drum_angle in enumerate(drum_angles):
             drum_forcers.append(interp1d([0, time], [drum_angle, drum_angle + drum_action[i]]))
 
+        assert len(drum_forcers) == len(drum_angles)
         return drum_forcers
 
     def reactor_dae(self, t, y, d1, d2, d3, d4, d5, d6, d7, d8):
@@ -132,12 +134,12 @@ class HolosPK:
 
 class HolosMulti(gym.Env):
     def __init__(self, profile, episode_length, run_path=None,
-                 run_mode="train", noise=0.0, debug=False,
+                 train_mode=True, noise=0.0, debug=False,
                  valid_maskings=(0,)):
         self.profile = profile
         self.episode_length = episode_length
         self.run_path = run_path
-        self.run_mode = run_mode
+        self.train_mode = train_mode
         self.noise = noise
         self.debug = debug
         self.valid_maskings = valid_maskings
@@ -155,16 +157,19 @@ class HolosMulti(gym.Env):
     def reset(self, seed=None, options=None):
         super(self.__class__, self).reset(seed=seed)
         current_desired_power = self.profile(0) / 100
+        assert current_desired_power == 1, 'current code assumes start at full power steady state'
         self.time = 0
         self.drum_angles = np.array([77.8]*8)
         self.y = self.pke.get_initial_conditions()
         current_power, *_ = self.y
+        assert current_power == 1, 'current code assumes start at full power steady state'
         self.history = [[self.time, *self.drum_angles, current_desired_power, *self.y]]
 
         num_masks = np.random.choice(self.valid_maskings)
         self.masks = np.ones(8)
         mask_indices = np.random.choice(8, size=num_masks, replace=False)
         self.masks[mask_indices] = 0
+        assert np.sum(self.masks) == 8 - num_masks, 'error in mask assignment'
 
         next_desired_power = self.profile(self.time + 1)
         fuzz = np.random.normal(0, self.noise)
@@ -178,27 +183,32 @@ class HolosMulti(gym.Env):
 
     def gym2real_action(self, gym_action):
         """Convert from the -1 to 1 box space to -0.5 to 0.5"""
-        real_action = gym_action.item() / 2
+        assert type(gym_action) == np.ndarray, 'action must be a numpy array'
+        real_action = gym_action / 2
         return real_action
 
     def real2gym_action(self, real_action):
         """Convert from the real -0.5 to 0.5 to the 0 1 continuous gym action space"""
         gym_action = real_action * 2
+        assert type(gym_action) == np.ndarray, 'action must be a numpy array'
         return gym_action
 
     def step(self, action):
         if self.time >= self.episode_length:
             raise RuntimeError("Episode length exceeded")
         real_action = self.gym2real_action(action) * self.masks
-
-        drum_forcers = self.drum_forcers(self.drum_angles, real_action)
+        drum_forcers = self.pke.drum_forcing(self.drum_angles, real_action)
         sol = solve_ivp(self.pke.reactor_dae, [0, 1], self.y, args=drum_forcers)
         self.y = sol.y[:,-1]
         self.drum_angles += real_action
+        assert self.drum_angles.min() >= 0 and self.drum_angles.max() <= 180, 'drum angles out of bounds'
+        current_desired_power = self.profile(self.time) / 100
         self.time += 1
 
         current_power, *_ = self.y
+        assert current_power >= 0 and current_power <= 1.5, 'power out of reasonable bounds'
         self.history.append([self.time, *self.drum_angles, current_desired_power, *self.y])
+        assert len(self.history) == self.time + 1, 'history length mismatch'
         next_desired_power = self.profile(self.time + 1)
         fuzz = np.random.normal(0, self.noise)
         observation = {
@@ -207,10 +217,11 @@ class HolosMulti(gym.Env):
             "power": np.array([current_power + fuzz]),
         }
 
-        desired_power = self.profile(self.time)
-        reward, terminated = self.calc_reward((current_power*100), desired_power)
+        desired_power = self.profile(self.time) / 100
+        reward, terminated = self.calc_reward(current_power, desired_power)
+        assert reward <= 2, 'max reward exceeded'
         truncated = False
-        if self.time >= self.episode_length:
+        if self.time >= self.episode_length - 1:
             truncated = True
         info = {'latest': self.history[-1]}
 
@@ -220,53 +231,52 @@ class HolosMulti(gym.Env):
         """Returns reward and whether the episode is terminated."""
         # First component: give reward to stay in the correct range
         diff = abs(current_power - desired_power)
+        assert diff <= 1.5, 'diff out of reasonable bounds'
         reward = 2 - diff
 
         # give a punish outside bounds if in train mode
         terminated = False
-        if self.run_mode == "train" and diff > 5:
+        if self.train_mode and diff > 5:
             reward -= 100
             terminated = True
 
         return reward, terminated
 
     def render(self, mode='human'):
-        if self.run_name:
-            base_name = (f'runs/{self.run_name}/{self.run_mode}-mode_'
-                        f'{self.noise}-noise_{self.profile}-profile_'
-                        f'{self.reward_mode}-reward_{self.time}')
+        if self.run_path is not None:
+            assert self.run_path.is_dir(), 'run_path must be a valid directory'
+            timestr = time.strftime("%Y%m%d-%H%M%S")
+            save_path = self.run_path / f'run_history_{timestr}.csv'
 
-            df = pd.DataFrame({
-                'desired_power': [100] + [self.desired_profile(t) for t in range(self.episode_length)],
-                'actual_power': self.power_history,
-                'diff': self.diff_history,
-                'action': self.action_history,
-                'fuel_temp': self.fuel_temp_history,
-                'moderator_temp': self.moderator_temp_history,
-                'coolant_temp': self.coolant_temp_history,
-                'drum': self.drum_history,
-                'Xe': self.Xe_history,
-                'I': self.I_history,
-            })
-            df.to_csv(f'{base_name}.csv', index=False)
+            run_history = np.array(self.history)
+            column_names = ['time', 'drum_1', 'drum_2', 'drum_3', 'drum_4',
+                            'drum_5', 'drum_6', 'drum_7', 'drum_8',
+                            'desired_power', 'actual_power', 'c1', 'c2', 'c3',
+                            'c4', 'c5', 'c6', 'Tf', 'Tm', 'Tc', 'Xe', 'I']
+            df = pd.DataFrame(run_history, columns=column_names)
+            df.to_csv(save_path, index=False)
+            assert df['actual_power'][0] == 1, 'steady state initial power value should be 100'
+            assert df['drum_1'][0] == 77.8, 'steady state initial drum angle should be 77.8'
+            microutils.plot_history(df)
 
 
 class HolosSingle(gym.Env):
     def __init__(self, profile, episode_length, run_path=None,
-                 run_mode="train", noise=0.0, debug=False,
+                 train_mode=True, noise=0.0, debug=False,
                  valid_maskings=(0,)):
-        self.env = HolosMulti(profile, episode_length, run_path, run_mode, noise, debug, valid_maskings)
-
+        self.profile = profile
+        self.multi_env = HolosMulti(profile, episode_length, run_path, train_mode, noise, debug, valid_maskings)
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
         self.observation_space = gym.spaces.Dict({
             "drum_angle": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "next_desired_power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
             "power": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
         })
-        self.env.reset()
+        self.multi_env.reset()
 
     def reset(self, seed=None, options=None):
-        obs, info = self.env.reset(seed=seed, options=options)
+        obs, info = self.multi_env.reset(seed=seed, options=options)
+        self.time = self.multi_env.time
         observation = {
             "drum_angle": np.array(np.mean(obs["drum_angles"])),  # treat as a single drum angle
             "next_desired_power": np.array([obs["next_desired_power"]]),
@@ -275,7 +285,10 @@ class HolosSingle(gym.Env):
         return observation, info
 
     def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
+        unwrapped_action = action.item()
+        action = np.array([unwrapped_action] * 8)
+        obs, reward, terminated, truncated, info = self.multi_env.step(action)
+        self.time = self.multi_env.time
         observation = {
             "drum_angle": np.array(np.mean(obs["drum_angles"])),  # treat as a single drum angle
             "next_desired_power": np.array([obs["next_desired_power"]]),
@@ -284,15 +297,15 @@ class HolosSingle(gym.Env):
         return observation, reward, terminated, truncated, info
 
     def render(self, mode='human'):
-        self.env.render(mode=mode)
+        self.multi_env.render(mode=mode)
 
 
 class HolosMARL(ParallelEnv):
     def __init__(self, profile, episode_length, run_path=None,
-                 run_mode="train", noise=0.0, debug=False,
+                 train_mode=True, noise=0.0, debug=False,
                  valid_maskings=(0,)):
         super().__init__()
-        self.env = HolosMulti(profile, episode_length, run_path, run_mode, noise, debug, valid_maskings)
+        self.gym_env = HolosMulti(profile, episode_length, run_path, train_mode, noise, debug, valid_maskings)
         self.agents = [f"agent_{i}" for i in range(8)]  # 8 control drums
 
         # Each agent represents one out of the eight control drums
@@ -319,7 +332,7 @@ class HolosMARL(ParallelEnv):
 
     def reset(self, seed=None, options=None):
         self.agents = self.possible_agents[:]
-        obs, info = self.env.reset(seed=seed)
+        obs, info = self.gym_env.reset(seed=seed)
 
         observations = {agent: obs.copy() for agent in self.agents}
         for agent in self.agents:
@@ -333,7 +346,7 @@ class HolosMARL(ParallelEnv):
         action = np.array([actions[agent].item() for agent in self.agents])
 
         # Step the environment with combined action
-        obs, reward, terminated, truncated, info = self.env.step(action)
+        obs, reward, terminated, truncated, info = self.gym_env.step(action)
 
         # Distribute observations, rewards, and other info to all agents
         observations = {agent: obs.copy() for agent in self.agents}
@@ -347,7 +360,7 @@ class HolosMARL(ParallelEnv):
         return observations, rewards, terminations, truncations, infos
 
     def render(self):
-        return self.env.render()
+        return self.gym_env.render()
 
     def close(self):
-        self.env.close()
+        self.gym_env.close()
