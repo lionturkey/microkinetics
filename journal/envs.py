@@ -236,7 +236,7 @@ class HolosMulti(gym.Env):
 
         # give a punish outside bounds if in train mode
         terminated = False
-        if self.train_mode and diff > 5:
+        if self.train_mode and diff > .05:
             reward -= 100
             terminated = True
 

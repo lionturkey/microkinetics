@@ -6,6 +6,10 @@ import matplotlib.pyplot as plt
 import envs
 import microutils
 from scipy.interpolate import interp1d
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.vec_env import VecMonitor
+from stable_baselines3.common.monitor import Monitor
 
 
 def main():
@@ -33,11 +37,13 @@ def main():
     run_folder = Path.cwd() / 'runs' / 'single_action_rl'
     run_folder.mkdir(exist_ok=True, parents=True)
     model_folder = run_folder / 'models/'
+    # model_folder.unlink(missing_ok=True)
+    model_folder.rmdir()
     # if a model has already been trained, just load it to save time
     if not model_folder.exists():
         model_folder.mkdir(exist_ok=True)
         log_dir = run_folder / 'logs/'
-        vec_env = make_vec_env(environment, n_envs=6,
+        vec_env = make_vec_env(envs.HolosSingle, n_envs=6,
                                env_kwargs={'profile': training_profile,
                                            'episode_length': 200,
                                            'run_path': run_folder,
@@ -58,7 +64,7 @@ def main():
                                      eval_freq=8000)
         model.learn(total_timesteps=2_000_000, callback=eval_callback, progress_bar=True)
 
-    
+
 
 
 if __name__ == '__main__':
