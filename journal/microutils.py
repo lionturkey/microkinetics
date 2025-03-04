@@ -2,10 +2,10 @@ import numpy as np
 from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
-
-
-# def calc_metrics():
-#     pass
+from scipy.optimize import minimize, differential_evolution
+from scipy.interpolate import interp1d
+import envs
+import os
 
 
 class PIDController:
@@ -20,7 +20,10 @@ class PIDController:
     """
 
     # def __init__(self, Kp=0.3, Ki=0.15, Kd=.1, max_rate=1, multiplier=1):
-    def __init__(self, Kp=0.2, Ki=0, Kd=.3, max_rate=1, multiplier=1):
+    # minimized optimized: [0.07822899 0.         0.30242492]
+    # minimized IAE + CE: [0.07201629 0.         0.27209926]
+    # evolution optimized: [0.07820128 0.         0.30870895]
+    def __init__(self, Kp=.078, Ki=0, Kd=0.3, max_rate=1, multiplier=1):
         self.Kp = Kp * multiplier
         self.Ki = Ki * multiplier
         self.Kd = Kd * multiplier
@@ -58,6 +61,10 @@ def pid_loop(single_env):
         if terminated or truncated:
             done = True
     single_env.render()
+
+
+# def single_agent_train(env, run_folder, checkpoint_num=40):
+
 
 
 def control_loop(model, env):
@@ -100,7 +107,7 @@ def load_history(history_path: Path):
 
 def calc_metrics(history: pd.DataFrame):
     assert history['time'][1] - history['time'][0] == 1, 'metric calculations assume 1 second timesteps'
-    error = history['desired_power'] - history['power']
+    error = history['desired_power'] - history['actual_power']
     absolute_error = np.abs(error)
     mean_absolute_error = np.mean(absolute_error)
     integral_absolute_error = np.sum(absolute_error)
@@ -123,3 +130,38 @@ def plot_history(history: pd.DataFrame):
 # if run_name is not None:
 #     self.run_folder = Path.cwd() / 'runs' / run_name
 #     self.run_folder.mkdir(parents=True, exist_ok=True)
+
+
+def tune_pid(profile, episode_length=200):
+    run_folder = Path.cwd() / 'runs' / 'pid_train'
+    run_folder.mkdir(exist_ok=True, parents=True)
+    holos_env = envs.HolosSingle(profile=profile, episode_length=episode_length, run_path=run_folder, train_mode=False)
+
+    def pid_objective(params):
+        p_gain, i_gain, d_gain = params
+        controller = PIDController(p_gain, i_gain, d_gain)
+        obs, _ = holos_env.reset()
+        done = False
+        while not done:
+            action = controller.update(obs["power"]*100,
+                                       holos_env.profile(holos_env.time+1))
+            obs, _, terminated, truncated, _ = holos_env.step(action)
+            if terminated or truncated:
+                done = True
+            if obs['power'] > 1.2:
+                fake_iae = 1_000 * obs['power'].item()
+                print(f'IAE: {fake_iae}, gains: {p_gain}, {i_gain}, {d_gain}')
+                return fake_iae
+        holos_env.render()
+        _, iae, _ = calc_metrics(holos_env.multi_env.history)
+        print(f'IAE: {iae}, gains: {p_gain}, {i_gain}, {d_gain}')
+        return iae
+    
+    # return differential_evolution(pid_objective, [(0, 1), (0, 1), (0, 1)])
+    return minimize(pid_objective, [0.08, 0, 0.3], bounds=[(0, 5), (0, 5), (0, 5)])
+
+if __name__ == '__main__':
+    training_profile = interp1d([  0,  20, 30, 35, 60, 100, 120, 125, 140, 160, 180, 200], # times (s)
+                                [100, 100, 90, 90, 55,  55,  65,  65,  80,  80,  95,  95]) # power (SPU)
+    result = tune_pid(training_profile)
+    print(result.x)

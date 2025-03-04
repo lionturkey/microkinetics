@@ -206,7 +206,7 @@ class HolosMulti(gym.Env):
         self.time += 1
 
         current_power, *_ = self.y
-        assert current_power >= 0 and current_power <= 1.5, 'power out of reasonable bounds'
+        assert current_power >= 0 and current_power <= 2, 'power out of reasonable bounds'
         self.history.append([self.time, *self.drum_angles, current_desired_power, *self.y])
         assert len(self.history) == self.time + 1, 'history length mismatch'
         next_desired_power = self.profile(self.time + 1)
@@ -231,7 +231,7 @@ class HolosMulti(gym.Env):
         """Returns reward and whether the episode is terminated."""
         # First component: give reward to stay in the correct range
         diff = abs(current_power - desired_power)
-        assert diff <= 1.5, 'diff out of reasonable bounds'
+        assert diff <= 2, 'diff out of reasonable bounds'
         reward = 2 - diff
 
         # give a punish outside bounds if in train mode
@@ -243,21 +243,21 @@ class HolosMulti(gym.Env):
         return reward, terminated
 
     def render(self, mode='human'):
+        run_history = np.array(self.history)
+        column_names = ['time', 'drum_1', 'drum_2', 'drum_3', 'drum_4',
+                        'drum_5', 'drum_6', 'drum_7', 'drum_8',
+                        'desired_power', 'actual_power', 'c1', 'c2', 'c3',
+                        'c4', 'c5', 'c6', 'Tf', 'Tm', 'Tc', 'Xe', 'I']
+        df = pd.DataFrame(run_history, columns=column_names)
+        assert df['actual_power'][0] == 1, 'steady state initial power value should be 100'
+        assert df['drum_1'][0] == 77.8, 'steady state initial drum angle should be 77.8'
+        self.history = df
+
         if self.run_path is not None:
             assert self.run_path.is_dir(), 'run_path must be a valid directory'
             timestr = time.strftime("%Y%m%d-%H%M%S")
             save_path = self.run_path / f'run_history_{timestr}.csv'
-
-            run_history = np.array(self.history)
-            column_names = ['time', 'drum_1', 'drum_2', 'drum_3', 'drum_4',
-                            'drum_5', 'drum_6', 'drum_7', 'drum_8',
-                            'desired_power', 'actual_power', 'c1', 'c2', 'c3',
-                            'c4', 'c5', 'c6', 'Tf', 'Tm', 'Tc', 'Xe', 'I']
-            df = pd.DataFrame(run_history, columns=column_names)
             df.to_csv(save_path, index=False)
-            assert df['actual_power'][0] == 1, 'steady state initial power value should be 100'
-            assert df['drum_1'][0] == 77.8, 'steady state initial drum angle should be 77.8'
-            microutils.plot_history(df)
 
 
 class HolosSingle(gym.Env):
