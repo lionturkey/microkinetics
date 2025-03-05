@@ -67,11 +67,11 @@ def pid_loop(single_env):
 
 
 
-def control_loop(model, env):
+def rl_control_loop(model, env):
     obs, _ = env.reset()
     done = False
     while not done:
-        action, _states = model.predict(obs)
+        action, _states = model.predict(obs, deterministic=True)
         obs, _, terminated, truncated, _ = env.step(action)
         if terminated or truncated:
             done = True
