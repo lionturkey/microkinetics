@@ -233,7 +233,7 @@ class HolosMulti(gym.Env):
     def calc_reward(self, current_power, desired_power):
         """Returns reward and whether the episode is terminated."""
         # First component: give reward to stay in the correct range
-        diff = abs(current_power - desired_power)
+        diff = 100*abs(current_power - desired_power)
         assert diff <= 2, 'diff out of reasonable bounds'
         reward = 2 - diff
 
