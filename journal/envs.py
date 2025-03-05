@@ -135,7 +135,7 @@ class HolosPK:
 class HolosMulti(gym.Env):
     def __init__(self, profile, episode_length, run_path=None,
                  train_mode=True, noise=0.0, debug=False,
-                 valid_maskings=(0,)):
+                 valid_maskings=(0,), symmetry_reward=False):
         self.profile = profile
         self.episode_length = episode_length
         self.run_path = run_path
@@ -143,6 +143,7 @@ class HolosMulti(gym.Env):
         self.noise = noise
         self.debug = debug
         self.valid_maskings = valid_maskings
+        self.symmetry_reward = symmetry_reward
 
         self.pke = HolosPK()
         self.action_space = gym.spaces.Box(low=-1, high=1, shape=(8,), dtype=np.float32)
@@ -219,6 +220,8 @@ class HolosMulti(gym.Env):
 
         desired_power = self.profile(self.time) / 100
         reward, terminated = self.calc_reward(current_power, desired_power)
+        if self.symmetry_reward:
+            reward -= np.max(action) - np.min(action)
         assert reward <= 2, 'max reward exceeded'
         truncated = False
         if self.time >= self.episode_length - 1:
@@ -278,9 +281,9 @@ class HolosSingle(gym.Env):
         obs, info = self.multi_env.reset(seed=seed, options=options)
         self.time = self.multi_env.time
         observation = {
-            "drum_angle": np.array(np.mean(obs["drum_angles"])),  # treat as a single drum angle
-            "next_desired_power": np.array([obs["next_desired_power"]]),
-            "power": np.array([obs["power"]]),
+            "drum_angle": np.array([np.mean(obs["drum_angles"])]),  # treat as a single drum angle
+            "next_desired_power": np.array(obs["next_desired_power"]),
+            "power": np.array(obs["power"]),
         }
         return observation, info
 
@@ -290,9 +293,9 @@ class HolosSingle(gym.Env):
         obs, reward, terminated, truncated, info = self.multi_env.step(action)
         self.time = self.multi_env.time
         observation = {
-            "drum_angle": np.array(np.mean(obs["drum_angles"])),  # treat as a single drum angle
-            "next_desired_power": np.array([obs["next_desired_power"]]),
-            "power": np.array([obs["power"]]),
+            "drum_angle": np.array([np.mean(obs["drum_angles"])]),  # treat as a single drum angle
+            "next_desired_power": np.array(obs["next_desired_power"]),
+            "power": np.array(obs["power"]),
         }
         return observation, reward, terminated, truncated, info
 
@@ -336,7 +339,7 @@ class HolosMARL(ParallelEnv):
 
         observations = {agent: obs.copy() for agent in self.agents}
         for agent in self.agents:
-            observations[agent]["drum_angle"] = np.array(obs["drum_angles"][agent])
+            observations[agent]["drum_angle"] = np.array([obs["drum_angles"][agent]])
         infos = {agent: info for agent in self.agents}
 
         return observations, infos
@@ -351,7 +354,7 @@ class HolosMARL(ParallelEnv):
         # Distribute observations, rewards, and other info to all agents
         observations = {agent: obs.copy() for agent in self.agents}
         for agent in self.agents:
-            observations[agent]["drum_angle"] = np.array(obs["drum_angles"][agent])
+            observations[agent]["drum_angle"] = np.array([obs["drum_angles"][agent]])
         rewards = {agent: (reward / 8) for agent in self.agents}
         terminations = {agent: terminated for agent in self.agents}
         truncations = {agent: truncated for agent in self.agents}
