@@ -29,6 +29,20 @@ def main():
     # run the PID loop
     env = envs.HolosSingle(profile=training_profile, episode_length=200, run_path=run_folder, train_mode=False)
     microutils.pid_loop(env)  # note: this will also create a run_history.csv in the run folder
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'PID train - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
+
+    # run the same model on the testing profile
+    env = envs.HolosSingle(profile=testing_profile, episode_length=200, run_path=run_folder, train_mode=False)
+    microutils.pid_loop(env)
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'PID test - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
 
     ####################
     # Single Action RL #
@@ -37,8 +51,7 @@ def main():
     run_folder = Path.cwd() / 'runs' / 'single_action_rl'
     run_folder.mkdir(exist_ok=True, parents=True)
     model_folder = run_folder / 'models/'
-    # model_folder.unlink(missing_ok=True)
-    model_folder.rmdir()
+    # model_folder.rmdir()
     # if a model has already been trained, just load it to save time
     if not model_folder.exists():
         model_folder.mkdir(exist_ok=True)
@@ -55,16 +68,141 @@ def main():
                         device='cpu')
         eval_env = envs.HolosSingle(profile=testing_profile,
                                     episode_length=200,
-                                    train_mode=False)
+                                    train_mode=True)
         eval_env = Monitor(eval_env, filename=str(log_dir / 'eval'))
         eval_callback = EvalCallback(eval_env=eval_env,
                                      best_model_save_path=str(model_folder),
                                      log_path=str(log_dir),
                                      deterministic=True,
-                                     eval_freq=8000)
+                                     eval_freq=2000)
         model.learn(total_timesteps=2_000_000, callback=eval_callback, progress_bar=True)
 
+    # load and run the saved model
+    model = sb3.PPO.load(model_folder / 'best_model.zip', device='cpu')
+    env = envs.HolosSingle(profile=training_profile, episode_length=200, run_path=run_folder, train_mode=False)
+    microutils.rl_control_loop(model, env)
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'Single Action RL train - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
 
+    # run the same model on the testing profile
+    env = envs.HolosSingle(profile=testing_profile, episode_length=200, run_path=run_folder, train_mode=False)
+    microutils.rl_control_loop(model, env)
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'Single Action RL test - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
+
+
+    ################################
+    # Multi Action RL (asymmetric) #
+    ################################
+    # create a run folder
+    run_folder = Path.cwd() / 'runs' / 'multi_action_rl'
+    run_folder.mkdir(exist_ok=True, parents=True)
+    model_folder = run_folder / 'models/'
+    # model_folder.rmdir()
+    # if a model has already been trained, just load it to save time
+    if not model_folder.exists():
+        model_folder.mkdir(exist_ok=True)
+        log_dir = run_folder / 'logs/'
+        vec_env = make_vec_env(envs.HolosMulti, n_envs=6,
+                               env_kwargs={'profile': training_profile,
+                                           'episode_length': 200,
+                                           'run_path': run_folder,
+                                           'train_mode': True})
+        vec_env = VecMonitor(vec_env,
+                            filename=str(log_dir / 'vec'))
+        model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
+                        tensorboard_log=str(log_dir),
+                        device='cpu')
+        eval_env = envs.HolosMulti(profile=testing_profile,
+                                    episode_length=200,
+                                    train_mode=True)
+        eval_env = Monitor(eval_env, filename=str(log_dir / 'eval'))
+        eval_callback = EvalCallback(eval_env=eval_env,
+                                     best_model_save_path=str(model_folder),
+                                     log_path=str(log_dir),
+                                     deterministic=True,
+                                     eval_freq=2000)
+        model.learn(total_timesteps=2_000_000, callback=eval_callback, progress_bar=True)
+
+    # load and run the saved model
+    model = sb3.PPO.load(model_folder / 'best_model.zip', device='cpu')
+    env = envs.HolosMulti(profile=training_profile, episode_length=200, run_path=run_folder, train_mode=False)
+    microutils.rl_control_loop(model, env)
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'Multi Action RL asymmetric train - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
+
+    # run the same model on the testing profile
+    env = envs.HolosMulti(profile=testing_profile, episode_length=200, run_path=run_folder, train_mode=False)
+    microutils.rl_control_loop(model, env)
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'Multi Action RL asymmetric test - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
+
+
+    ################################
+    # Multi Action RL (symmetric) #
+    ################################
+    # create a run folder
+    run_folder = Path.cwd() / 'runs' / 'multi_action_rl_symmetric'
+    run_folder.mkdir(exist_ok=True, parents=True)
+    model_folder = run_folder / 'models/'
+    # model_folder.rmdir()
+    # if a model has already been trained, just load it to save time
+    if not model_folder.exists():
+        model_folder.mkdir(exist_ok=True)
+        log_dir = run_folder / 'logs/'
+        vec_env = make_vec_env(envs.HolosMulti, n_envs=6,
+                               env_kwargs={'profile': training_profile,
+                                           'episode_length': 200,
+                                           'run_path': run_folder,
+                                           'train_mode': True,
+                                           'symmetry_reward': True})
+        vec_env = VecMonitor(vec_env,
+                            filename=str(log_dir / 'vec'))
+        model = sb3.PPO('MultiInputPolicy', vec_env, verbose=1,
+                        tensorboard_log=str(log_dir),
+                        device='cpu')
+        eval_env = envs.HolosMulti(profile=testing_profile,
+                                    episode_length=200,
+                                    train_mode=True,
+                                    symmetry_reward=True)
+        eval_env = Monitor(eval_env, filename=str(log_dir / 'eval'))
+        eval_callback = EvalCallback(eval_env=eval_env,
+                                     best_model_save_path=str(model_folder),
+                                     log_path=str(log_dir),
+                                     deterministic=True,
+                                     eval_freq=2000)
+        model.learn(total_timesteps=2_000_000, callback=eval_callback, progress_bar=True)
+
+    # load and run the saved model
+    model = sb3.PPO.load(model_folder / 'best_model.zip', device='cpu')
+    env = envs.HolosMulti(profile=training_profile, episode_length=200, run_path=run_folder, train_mode=False)
+    microutils.rl_control_loop(model, env)
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'Single Action RL train - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
+
+    # run the same model on the testing profile
+    env = envs.HolosMulti(profile=testing_profile, episode_length=200, run_path=run_folder, train_mode=False)
+    microutils.rl_control_loop(model, env)
+    history_path = microutils.find_latest_file(run_folder, pattern='run_history*.csv')
+    history = microutils.load_history(history_path)
+    # microutils.plot_history(history)
+    mae, iae, control_effort = microutils.calc_metrics(history)
+    print(f'Single Action RL test - MAE: {mae}, IAE: {iae}, Control Effort: {control_effort}')
 
 
 if __name__ == '__main__':
